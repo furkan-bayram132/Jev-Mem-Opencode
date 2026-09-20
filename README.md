@@ -9,7 +9,7 @@ validates those decisions, maintains the graph, and enforces retrieval budgets.
 A separate language model generates the final answer from retrieved evidence.
 
 
-![Jev-Mem write and retrieval workflows](docs/figures/overall_structure.png)
+![Jev-Mem write and retrieval workflows](overall_structure.png)
 
 [Algorithm design](docs/algorithm.md) · [Implementation](docs/implementation.md) ·
 [Evaluation](docs/evaluation.md) · [Contributing](CONTRIBUTING.md)
