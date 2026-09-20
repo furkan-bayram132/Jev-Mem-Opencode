@@ -164,7 +164,7 @@ Python entry points are `main.JevMemSystem`, `memory.JevMemConfig`,
 `jev_config=...`. Jev questions live in [memory/jev_questions.py](memory/jev_questions.py).
 See [implementation details](docs/implementation.md) for library usage and SDK calls.
 
-Omit the Jev configuration and flags to use the MAGMA baseline. With Jev enabled,
+With Jev enabled,
 `--no-jev-write` and `--no-jev-read` ablate either controller. The previous
 `--sys1mem`, `--sys1-config`, and `--no-sys1-*` flags and Python imports remain
 compatibility aliases. Some saved metadata retains legacy names for old graphs.
@@ -194,11 +194,3 @@ See [CONTRIBUTING.md](CONTRIBUTING.md), [the code of conduct](CODE_OF_CONDUCT.md
 To prepare a clean public checkout from a private workspace, use
 [the release guide](docs/releasing.md).
 
-A minimal development-software citation is in [CITATION.bib](CITATION.bib).
-For research, record the actual commit and cite the upstream MAGMA work and
-any datasets used. Author, repository, and archival identifiers should be added
-when the release owner supplies them; no paper publication is claimed here.
-
-Distributed under the [MIT license](LICENSE). The original MAGMA license and
-copyright notice are preserved; see [NOTICE](NOTICE) for attribution. External
-services, dependencies, and datasets retain their respective terms.
