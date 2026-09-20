@@ -1,0 +1,45 @@
+flowchart TB
+  subgraph WRITE[Write workflow: retain every valid observation]
+    O[Raw observation and provenance] --> T[Jev: four overlapping memory types]
+    T --> C[Embed and find bounded candidates]
+    C --> R[Jev: batched relation judgments]
+    D[Timestamp and exact-entity rules] --> R
+    R --> I[Insert canonical node, vector, and selected edges]
+  end
+  subgraph MEMORY[Shared memory data plane]
+    V[(Canonical observations and provenance)]
+    G[Semantic / Temporal / Causal / Entity relations]
+    X[Vector and keyword indexes]
+    V --- G
+    V --- X
+  end
+  I --> V
+  X --> C
+  V -. periodic .-> CON[Jev: consolidation decisions and links]
+  CON -. preserve originals .-> V
+  CON -. optional approved action and supplied callback .-> SUM[System Two: additional summary]
+  SUM -. new representation with provenance .-> O
+  subgraph READ[Retrieval workflow: bounded evidence feedback loop]
+    Q[Query] --> RT[Jev: graph needs, multi-hop need, recency]
+    RT --> B[Allocate per-graph budgets and depth allowance]
+    B --> A[Hybrid anchors: vector + keyword RRF]
+    A --> E[Current top-K evidence]
+    E --> ST[Jev: sufficiency, usefulness, gaps, conflicts]
+    ST --> DEC{Stop decision or hard limit?}
+    DEC -- continue --> EXP[Bounded neighboring proposals]
+    EXP --> SC[Jev: relevance, relation usefulness, novelty, corroboration]
+    SC --> BEAM[Weighted scores and beam update]
+    BEAM --> E
+  end
+  X --> A
+  G --> EXP
+  B -. resource allocations .-> EXP
+  DEC -- stop --> OUT[Format selected original evidence]
+  OUT --> LLM[System Two: answer synthesis]
+  LLM --> ANS[Answer]
+  classDef jev fill:#e8f0ff,stroke:#3564ac,color:#152c4d;
+  classDef data fill:#eaf4ef,stroke:#388568,color:#173c30;
+  classDef systemtwo fill:#fff0dc,stroke:#bc791f,color:#604017;
+  class T,R,CON,RT,ST,SC jev;
+  class C,I,B,A,EXP,BEAM,OUT data;
+  class SUM,LLM systemtwo;

@@ -1,0 +1,37 @@
+[build-system]
+requires = ["setuptools>=77", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "jev-mem"
+version = "0.1.0"
+description = "Typed probabilistic control for multi-graph conversational memory"
+readme = "README.md"
+requires-python = ">=3.11"
+license = "MIT"
+license-files = ["LICENSE", "NOTICE"]
+keywords = ["agent-memory", "knowledge-graph", "retrieval", "jev", "locomo"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Intended Audience :: Science/Research",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.11",
+  "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+dynamic = ["dependencies"]
+
+[project.scripts]
+jev-mem = "main:main"
+jev-mem-demo = "jev_mem_demo:main"
+jev-mem-eval = "test_fixed_memory:main"
+
+[tool.setuptools]
+py-modules = ["main", "jev_mem_demo", "sys1mem_demo", "test_fixed_memory", "test_longmemeval_chunked", "load_dataset", "load_longmemeval"]
+include-package-data = false
+
+[tool.setuptools.packages.find]
+include = ["memory", "utils"]
+namespaces = true
+
+[tool.setuptools.dynamic]
+dependencies = {file = ["requirements.txt"]}
