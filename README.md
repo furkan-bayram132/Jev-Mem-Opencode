@@ -8,11 +8,8 @@ constructs and searches memory. Jev returns typed decisions through **Noul**
 validates those decisions, maintains the graph, and enforces retrieval budgets.
 A separate language model generates the final answer from retrieved evidence.
 
-This research prototype extends [MAGMA](https://github.com/FredJiang0324/MAGMA).
-It retains the MAGMA baseline and supports LoCoMo experiments. It does not yet
-establish benchmark superiority or calibrated probabilities.
 
-![Jev-Mem write and retrieval workflows](docs/figures/jev_mem_overview.svg)
+![Jev-Mem write and retrieval workflows](docs/figures/overall_structure.png)
 
 [Algorithm design](docs/algorithm.md) · [Implementation](docs/implementation.md) ·
 [Evaluation](docs/evaluation.md) · [Contributing](CONTRIBUTING.md)
