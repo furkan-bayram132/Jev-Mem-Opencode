@@ -48,7 +48,8 @@ class ChunkedLongMemEvalTester:
     """Improved test harness with better retrieval strategies"""
 
     def __init__(self, model: str = "gpt-4o-mini", embedding_model: str = "minilm",
-                 chunk_size: int = 4, use_episodes: bool = False, memory_level: str = "session"):
+                 chunk_size: int = 4, use_episodes: bool = False, memory_level: str = "session",
+                 jev_config=None, cache_dir: str = "jev_mem_cache/longmemeval"):
         """
         Initialize the improved tester
 
@@ -62,6 +63,12 @@ class ChunkedLongMemEvalTester:
         self.chunk_size = chunk_size
         self.use_episodes = use_episodes
         self.memory_level = memory_level
+        self.jev_memory = None
+        if jev_config is not None:
+            if memory_level != 'message' or use_episodes:
+                raise ValueError("Jev-Mem LongMemEval requires message memory without episodes")
+            from memory.longmemeval_jev import LongMemEvalJevMemory
+            self.jev_memory = LongMemEvalJevMemory(jev_config, model, embedding_model, cache_dir)
 
         # Initialize LLM controller
         api_key = os.getenv('OPENAI_API_KEY')
@@ -2051,12 +2058,17 @@ Answer:"""
 
         for question in tqdm(questions, desc="Processing questions"):
             try:
-                if self.memory_level == 'message':
+                jev_details = {}
+                if self.jev_memory is not None:
+                    self.jev_memory.build(question, rebuild=rebuild)
+                    predicted, jev_details = self.jev_memory.answer(question, self.llm_controller)
+                elif self.memory_level == 'message':
                     trg, query_engine = self.build_memory_message_level(question, rebuild=rebuild)
                 else:
                     trg, query_engine = self.build_memory_for_question_improved(question, rebuild=rebuild)
 
-                predicted = self.answer_question_improved(question, trg, query_engine)
+                if self.jev_memory is None:
+                    predicted = self.answer_question_improved(question, trg, query_engine)
 
                 q_type = question.question_type if hasattr(question, 'question_type') else 'unknown'
                 q_lower = question.question.lower()
@@ -2112,7 +2124,8 @@ Answer:"""
                     'predicted': predicted,
                     'predicted_clean': predicted_clean,
                     'correct': is_correct,
-                    'llm_judge_score': llm_judge_score
+                    'llm_judge_score': llm_judge_score,
+                    **jev_details
                 })
 
                 status = "✓" if is_correct else "✗"
@@ -2136,6 +2149,9 @@ Answer:"""
                     'traceback': traceback.format_exc(),
                     'correct': False
                 })
+            finally:
+                if self.jev_memory is not None:
+                    self.jev_memory.close()
 
         total = len(results)
         correct = sum(1 for r in results if r.get('correct'))
@@ -2160,15 +2176,40 @@ def main():
     parser.add_argument('--chunk-size', type=int, default=4, help='Number of turns per chunk')
     parser.add_argument('--use-episodes', action='store_true', help='Use episode-based memory')
     parser.add_argument('--memory-level', type=str, default='message', choices=['session', 'message'],
-                       help='Build memory at session level (default) or individual message level')
+                       help='Build memory at session level or individual message level (default)')
     parser.add_argument('--category', type=str,
                        choices=['1', '2', '3', '4', '5', '6'],
                        help='Filter by category: 1=temporal-reasoning, 2=multi-session, 3=single-session-preference, 4=single-session-assistant, 5=knowledge-update, 6=single-session-user')
     parser.add_argument('--rebuild', action='store_true', help='Force rebuild memory cache')
+    parser.add_argument('--jev-mem', action='store_true', help='Enable Jev-Mem write and retrieval control')
+    parser.add_argument('--jev-config', help='Jev-Mem JSON configuration (also enables the Jev-Mem adapter)')
+    parser.add_argument('--jev-mock', action='store_true', help='Mock Jev only; answers and evaluation still use the LLM')
+    parser.add_argument('--no-jev-write', action='store_true', help='Ablate Jev memory construction')
+    parser.add_argument('--no-jev-read', action='store_true', help='Ablate Jev retrieval control')
+    parser.add_argument('--cache-dir', default='jev_mem_cache/longmemeval', help='Jev-Mem cache root')
     args = parser.parse_args()
+    if args.max_questions is not None and args.max_questions <= 0:
+        parser.error('--max-questions must be positive')
+    jev_config = None
+    if args.jev_mem or args.jev_config:
+        from memory.jev_mem_config import JevMemConfig
+        overrides = {}
+        if args.jev_mem:
+            overrides.update(write_enabled=True, read_enabled=True)
+        if args.jev_mock:
+            overrides['jev_mock'] = True
+        if args.no_jev_write:
+            overrides['write_enabled'] = False
+        if args.no_jev_read:
+            overrides['read_enabled'] = False
+        jev_config = JevMemConfig.load(args.jev_config, **overrides)
+        if args.memory_level != 'message' or args.use_episodes:
+            parser.error('Jev-Mem requires --memory-level message and no --use-episodes')
+    elif args.jev_mock or args.no_jev_write or args.no_jev_read:
+        parser.error('Jev options require --jev-mem or --jev-config')
 
     print("="*80)
-    print("CHUNKED LONGMEMEVAL TEST WITH IMPROVED RETRIEVAL")
+    print("JEV-MEM LONGMEMEVAL" if jev_config is not None else "CHUNKED LONGMEMEVAL TEST WITH IMPROVED RETRIEVAL")
     print("="*80)
 
     print(f"\nLoading dataset from {args.dataset}...")
@@ -2205,7 +2246,9 @@ def main():
         embedding_model=args.embedding_model,
         chunk_size=args.chunk_size,
         use_episodes=args.use_episodes,
-        memory_level=args.memory_level
+        memory_level=args.memory_level,
+        jev_config=jev_config,
+        cache_dir=args.cache_dir
     )
 
     results = tester.test_questions(questions, args.max_questions, rebuild=args.rebuild)
@@ -2260,7 +2303,7 @@ def main():
                 avg_per_question = token_stats['total_tokens']['total'] / min(len(questions), args.max_questions if args.max_questions else len(questions))
                 print(f"\n  Average tokens per question: {avg_per_question:.1f}")
 
-            if 'gpt-4o-mini' in args.model:
+            if 'gpt-4o-mini' in args.model and jev_config is None:
                 input_cost_per_1m = 0.15
                 output_cost_per_1m = 0.60
                 input_cost = (token_stats['prompt_tokens']['total'] / 1_000_000) * input_cost_per_1m
@@ -2274,7 +2317,8 @@ def main():
                 print(f"  Cost per question: ${total_cost / token_stats['prompt_tokens']['count']:.6f}")
                 print(f"  Projected cost for 1000 questions: ${(total_cost / token_stats['prompt_tokens']['count']) * 1000:.2f}")
 
-    output_file = f"results/chunked_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+    prefix = 'jev_mem_longmemeval' if jev_config is not None else 'chunked'
+    output_file = f"results/{prefix}_{datetime.now().strftime('%Y%m%d_%H%M%S_%f')}.json"
     os.makedirs('results', exist_ok=True)
 
     save_data = {
@@ -2282,6 +2326,11 @@ def main():
         'summary': results['summary'],
         'by_type': type_stats
     }
+    if jev_config is not None:
+        save_data.update(jev_mem_config=jev_config.to_dict(), model=args.model,
+                         embedding_model=args.embedding_model, dataset=args.dataset,
+                         evaluation='Existing runner evaluate_lenient; not the official LongMemEval metric',
+                         token_usage_scope='Harness LLM only; excludes Jev and graph construction')
 
     if hasattr(tester.llm_controller.llm, 'get_token_stats'):
         save_data['token_usage'] = tester.llm_controller.llm.get_token_stats()

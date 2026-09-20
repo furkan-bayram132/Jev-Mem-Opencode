@@ -8,16 +8,26 @@ constructs and searches memory. Jev returns typed decisions through **Noul**
 validates those decisions, maintains the graph, and enforces retrieval budgets.
 A separate language model generates the final answer from retrieved evidence.
 
+This research prototype extends [MAGMA](https://github.com/FredJiang0324/MAGMA).
+It retains the MAGMA baseline and supports LoCoMo and LongMemEval experiments. It does not yet
+establish benchmark superiority or calibrated probabilities.
 
-![Jev-Mem write and retrieval workflows](overall_structure.png)
+![Jev-Mem write and retrieval workflows](docs/figures/jev_mem_overview.svg)
+
+[Algorithm design](docs/algorithm.md) · [Implementation](docs/implementation.md) ·
+[Evaluation](docs/evaluation.md) · [Contributing](CONTRIBUTING.md)
 
 ## What it does
 
 - **Preserves observations:** admission filtering is off by default. Writes retain
   original text and provenance, attach overlapping memory-type scores, and add
-  semantic, temporal, causal, and entity relations.
+  semantic, temporal, causal, and entity relations. Temporal writes use MAGMA's
+  sequence and timestamp-proximity rules; other inferred relations use Jev.
 - **Retrieves with bounded work:** vector and keyword anchors seed graph traversal;
   Jev guides graph budgets, candidate ranking, and evidence-based stopping.
+- **Keeps temporal evidence grounded:** relative dates use each statement's own
+  conversation date; week/month/year precision is preserved. Retrieved adjacent
+  turns stay together so date-bearing replies retain their question or event context.
 - **Makes decisions inspectable:** traces record decisions, budgets, cache hits,
   stopping reasons, and fallback events. API failures have explicit fallback behavior.
 - **Supports controlled experiments:** separate write/read ablations, validated
@@ -71,6 +81,8 @@ OPENAI_BASE_URL=https://YOUR-RESOURCE.services.ai.azure.com/openai/v1/
 Pass your chat deployment name with `--model`. The default `minilm` embedding
 backend downloads a sentence-transformer model on first use. To use the OpenAI
 embedding backend, see the deployment variables in [.env.example](.env.example).
+Optionally set `HF_TOKEN` in `.env` to authenticate Hugging Face downloads.
+An unauthenticated-download warning alone does not mean a run has failed.
 
 Live runs send text to the configured providers and can incur charges. `.env`,
 datasets, memory caches, and results are excluded from public distribution.
@@ -114,6 +126,13 @@ and judging. Use the demo for a fully offline run.
 
 ### Cache reuse and reconstruction
 
+Each sample prints graph construction and saving durations separately. Cached
+runs print loading time and explicitly skip construction. Per-sample results
+store these measurements under `memory_timing`; Jev runs also emit a
+`memory_timing` audit event. Construction timing covers ingestion, embedding,
+link creation, and periodic consolidation inside `build_memory()`, excluding
+builder/model initialization, disk saving, and question answering.
+
 Identical sample, model, embedding, and configuration settings reuse a saved
 graph automatically. The runner prints the resolved cache directory. Read and
 write settings contribute to its fingerprint.
@@ -124,16 +143,47 @@ write settings contribute to its fingerprint.
   an exact graph while tuning retrieval. Construction settings must match;
   new logs and results use the new configuration. Do not combine with `--rebuild`.
 
-The rename gives new runs `jev_mem_…` paths. Existing `sys1mem_…` caches can be
-loaded explicitly through `--reuse-memory`; both old and new saved-config
-filenames are accepted. Never load an untrusted cache.
+Only reuse trusted caches with matching construction settings. See
+[cache compatibility](docs/implementation.md#cache-compatibility) for older graphs.
+
+## Run LongMemEval
+
+Build Jev-Mem graphs and answer the first five questions:
+
+```bash
+python test_longmemeval_chunked.py \
+  --dataset data/longmemeval_s_cleaned.json \
+  --jev-config config/jev_mem.json \
+  --max-questions 5 --rebuild
+```
+
+Omit `--rebuild` on subsequent runs to reuse matching graphs. Each question has
+its own conversation history; `--max-questions` limits evaluated questions,
+not the messages written into memory. Every nonempty user/assistant message
+passes through the shared builder with its original role and session date.
+The supplied profile disables admission filtering. Answers use only retrieved
+graph evidence, with the question date available for temporal reasoning.
+The terminal reports model initialization, message-level construction progress,
+saving, retrieval, and answer generation.
+
+Caches live under `jev_mem_cache/longmemeval/` (override with `--cache-dir`).
+The fingerprint includes the complete conversation content, roles, dates,
+model, embedding choice and configuration, excluding the audit destination.
+Changing settings selects a new cache. Construction/save/load times, retrieval
+traces and query times are saved in `results/jev_mem_longmemeval_*.json`.
+Query time excludes graph construction and evaluation. Decision logs are saved
+alongside each graph. `--no-jev-write` and `--no-jev-read` support ablations.
+
+Use `--category 1` for temporal-reasoning or `--category 2` for multi-session;
+these IDs differ from LoCoMo. See `--help` for all six categories. Jev-Mem uses
+message-level memory; session/episode modes remain baseline-only. Omit all Jev
+options to run the existing MAGMA path. The runner retains its existing lenient
+scorer; its reported accuracy is not the official LongMemEval evaluation metric.
 
 ## Configuration and API
 
-The active live profile is [config/jev_mem.json](config/jev_mem.json). Validated
+The live profile is [config/jev_mem.json](config/jev_mem.json). Validated
 fields and baseline defaults live in [JevMemConfig](memory/jev_mem_config.py).
-The alternate `jev_mem_accuracy.json` is an earlier retrieval experiment, not
-an established improvement over the main profile.
 
 | Main profile setting | Value | Purpose |
 | --- | ---: | --- |
@@ -164,17 +214,17 @@ Python entry points are `main.JevMemSystem`, `memory.JevMemConfig`,
 `jev_config=...`. Jev questions live in [memory/jev_questions.py](memory/jev_questions.py).
 See [implementation details](docs/implementation.md) for library usage and SDK calls.
 
-With Jev enabled,
+Omit the Jev configuration and flags to use the MAGMA baseline. With Jev enabled,
 `--no-jev-write` and `--no-jev-read` ablate either controller. The previous
-`--sys1mem`, `--sys1-config`, and `--no-sys1-*` flags and Python imports remain
-compatibility aliases. Some saved metadata retains legacy names for old graphs.
+CLI and Python names remain compatibility aliases; new code should use the
+Jev-Mem names above. See [compatibility details](docs/implementation.md#cache-compatibility).
 
 ## Repository guide
 
 | Path | Contents |
 | --- | --- |
 | `memory/` | Graph/vector storage, Jev policies, retrieval, generation and scoring |
-| `config/` | Live experimental configuration profiles |
+| `config/` | Live experimental configuration |
 | `tests/` | Offline regression and SDK contract tests |
 | `examples/` | Original synthetic inputs |
 | `docs/` | Algorithm draft, implementation, evaluation, and release guidance |
@@ -182,8 +232,8 @@ compatibility aliases. Some saved metadata retains legacy names for old graphs.
 | `scripts/` | Anchor diagnostics and public-release checks/export |
 | `.github/` | CI, issue forms, dependency updates, and PR template |
 
-The separate LongMemEval runner retains the upstream baseline; Jev-Mem control
-is not integrated into it. Current work includes held-out evaluation, probability
+The LongMemEval runner supports both the preserved baseline and Jev-Mem control.
+Current work includes held-out evaluation, probability
 calibration, and validation under live provider load. Mock tests do not answer
 those research questions.
 
@@ -194,3 +244,11 @@ See [CONTRIBUTING.md](CONTRIBUTING.md), [the code of conduct](CODE_OF_CONDUCT.md
 To prepare a clean public checkout from a private workspace, use
 [the release guide](docs/releasing.md).
 
+A minimal development-software citation is in [CITATION.bib](CITATION.bib).
+For research, record the actual commit and cite the upstream MAGMA work and
+any datasets used. Author, repository, and archival identifiers should be added
+when the release owner supplies them; no paper publication is claimed here.
+
+Distributed under the [MIT license](LICENSE). The original MAGMA license and
+copyright notice are preserved; see [NOTICE](NOTICE) for attribution. External
+services, dependencies, and datasets retain their respective terms.

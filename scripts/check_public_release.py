@@ -3,7 +3,9 @@
 
 Default: inspect the explicit release allowlist in the working tree.
 --tracked: inspect all stage-zero Git index blobs, including staged additions.
-This is a pattern guardrail, not a historical or semantic privacy audit.
+--all-files: inspect the complete public tree, including untracked files.
+--git-objects: inspect all local Git blobs, including unreachable staged versions.
+This is a pattern guardrail, not a semantic privacy audit.
 """
 import argparse
 from dataclasses import dataclass
@@ -19,16 +21,18 @@ PATTERNS = (
     ("TypeSafe credential", re.compile(rb"apikey_[A-Za-z0-9]{20,}_[A-Za-z0-9]{20,}")),
     ("OpenAI credential", re.compile(rb"\bsk-(?:proj-|svcacct-)?[A-Za-z0-9_-]{24,}")),
     ("GitHub credential", re.compile(rb"\b(?:gh[pousr]_[A-Za-z0-9]{25,}|github_pat_[A-Za-z0-9_]{30,})")),
+    ("Hugging Face credential", re.compile(rb"\bhf_[A-Za-z0-9]{20,}")),
+    ("Slack credential", re.compile(rb"\bxox[baprs]-[A-Za-z0-9-]{20,}")),
     ("AWS access key", re.compile(rb"\b(?:AKIA|ASIA)[A-Z0-9]{16}\b")),
     ("private key", re.compile(rb"-----BEGIN (?:RSA |EC |OPENSSH |DSA )?PRIVATE KEY-----")),
     ("credential assignment", re.compile(
-        rb"(?im)(?:[A-Z_]*(?:API_KEY|ACCESS_TOKEN|CLIENT_SECRET|PASSWORD)|api_key|access_token)"
+        rb"(?im)(?:[A-Z_]*(?:API_KEY|ACCESS_TOKEN|CLIENT_SECRET|PASSWORD)|HF_TOKEN|api_key|access_token)"
         rb"[\"']?[ \t]*[:=][ \t]*[\"']?([A-Za-z0-9_+/=-]{24,})")),
     ("personal absolute path", re.compile(rb"/(?:Users|home)/[A-Za-z0-9_.-]+/")),
 )
 AZURE = re.compile(rb"https://([A-Za-z0-9-]+)\.(?:services\.ai\.azure\.com|openai\.azure\.com)")
 PRIVATE_SUFFIXES = {".pkl", ".pickle", ".npy", ".npz", ".faiss", ".jsonl", ".log",
-                    ".pem", ".key", ".pt", ".pth", ".ckpt", ".safetensors"}
+                    ".pem", ".key", ".pt", ".pth", ".ckpt", ".safetensors", ".zip", ".gz"}
 
 
 @dataclass(frozen=True)
@@ -135,13 +139,56 @@ def scan_index(root):
     return names, findings
 
 
+def scan_all_files(root):
+    """A release must contain exactly its allowlist plus generated checksums."""
+    allowed = set(public_paths(root)) | {"SHA256SUMS"}
+    names, findings = [], []
+    for path in sorted(root.rglob("*")):
+        name = path.relative_to(root).as_posix()
+        if name == ".git" or name.startswith(".git/"):
+            continue
+        if path.is_symlink():
+            findings.append(Finding(name, "symlink not allowed in release"))
+            continue
+        if not path.is_file():
+            continue
+        names.append(name)
+        if name not in allowed:
+            findings.append(Finding(name, "file outside public allowlist"))
+        findings.extend(scan_content(name, path.read_bytes()))
+    return names, findings
+
+
+def scan_git_objects(root):
+    """Scan blob content without printing secrets or relying on existing commits."""
+    def git(*args):
+        return subprocess.check_output(["git", "-C", str(root), *args], stderr=subprocess.PIPE)
+
+    if Path(git("rev-parse", "--show-toplevel").decode().strip()).resolve() != root.resolve():
+        raise ValueError("--root must be the Git repository root")
+    rows = git("cat-file", "--batch-all-objects", "--batch-check=%(objectname) %(objecttype)")
+    names, findings = [], []
+    for row in rows.decode().splitlines():
+        oid, kind = row.split()
+        if kind == "blob":
+            name = "git-object/" + oid
+            names.append(name)
+            findings.extend(scan_content(name, git("cat-file", "blob", oid)))
+    return names, findings
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--root", type=Path, default=ROOT)
-    parser.add_argument("--tracked", action="store_true")
+    modes = parser.add_mutually_exclusive_group()
+    modes.add_argument("--tracked", action="store_true")
+    modes.add_argument("--all-files", action="store_true")
+    modes.add_argument("--git-objects", action="store_true")
     args = parser.parse_args()
     try:
-        names, findings = scan_index(args.root) if args.tracked else scan_worktree(args.root)
+        scanner = (scan_index if args.tracked else scan_all_files if args.all_files else
+                   scan_git_objects if args.git_objects else scan_worktree)
+        names, findings = scanner(args.root)
     except (OSError, ValueError, subprocess.CalledProcessError) as exc:
         # Never dump subprocess output or file contents in an error report.
         print(f"Public release check could not complete: {type(exc).__name__}")
@@ -151,7 +198,8 @@ def main():
         for finding in findings:
             print(f"  {finding}")
         return 1
-    print(f"Public release check passed: {len(names)} files; no credential patterns or private artifacts found.")
+    label = "Git blobs" if args.git_objects else "files"
+    print(f"Public release check passed: {len(names)} {label}; no credential patterns or private artifacts found.")
     return 0
 
 

@@ -19,14 +19,11 @@ NOTICE
 README.md
 SECURITY.md
 config/jev_mem.json
-config/jev_mem_accuracy.json
 data/README.md
 docs/algorithm.md
 docs/evaluation.md
 docs/figures/draw_jev_mem_overview.py
 docs/figures/jev_mem_overview.mmd
-docs/figures/jev_mem_overview.pdf
-docs/figures/jev_mem_overview.png
 docs/figures/jev_mem_overview.svg
 docs/implementation.md
 docs/releasing.md
@@ -51,6 +48,7 @@ memory/jev_questions.py
 memory/keyword_enrichment.py
 memory/llm_judge.py
 memory/longmemeval_evaluator.py
+memory/longmemeval_jev.py
 memory/memory_builder.py
 memory/mock_encoder.py
 memory/openai_encoder.py
@@ -71,11 +69,10 @@ scripts/check_public_release.py
 scripts/evaluate_anchor_recall.py
 scripts/export_public_repo.py
 setup.sh
-sys1mem_demo.py
 test_fixed_memory.py
 test_longmemeval_chunked.py
 tests/test_jev_mem.py
+tests/test_longmemeval_jev.py
 tests/test_public_release.py
-utils/load_dataset.py
 utils/memory_layer.py
 utils/utils.py

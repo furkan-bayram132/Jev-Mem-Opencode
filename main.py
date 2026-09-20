@@ -26,14 +26,14 @@ class JevMemSystem:
             raise ValueError("Pass only jev_config or the legacy sys1_config argument")
         config = jev_config or sys1_config or JevMemConfig()
         self.memory_builder = memory_builder if memory_builder is not None else MemoryBuilder(
-            cache_dir=str(self.cache_dir), llm_model=model, embedding_model=embedding_model, sys1_config=config)
+            cache_dir=str(self.cache_dir), llm_model=model, embedding_model=embedding_model, jev_config=config)
         self.trg_memory = self.memory_builder.trg
         self.graph_db = self.trg_memory.graph_db
         self.vector_db = self.trg_memory.vector_db
         self.llm_controller = self.memory_builder.llm_controller
         self.answer_formatter = self.memory_builder.answer_formatter
         self.query_engine = QueryEngine(self.trg_memory, self.memory_builder.node_index,
-                                       sys1_config=self.memory_builder.sys1_config, jev_client=self.memory_builder.jev)
+                                       jev_config=self.memory_builder.jev_config, jev_client=self.memory_builder.jev)
 
     def build_memory_from_conversation(self, conversation_data):
         """Accept raw observations; LoCoMo samples use the existing sample builder."""
@@ -98,11 +98,11 @@ def main():
     parser.add_argument('--model', default='gpt-4o-mini')
     parser.add_argument('--embedding-model', default='minilm', choices=['minilm', 'openai'])
     parser.add_argument('--cache-dir', default='./cache')
-    parser.add_argument('--jev-mem', '--sys1mem', dest='sys1mem', action='store_true')
-    parser.add_argument('--jev-config', '--sys1-config', dest='sys1_config')
+    parser.add_argument('--jev-mem', '--sys1mem', dest='jev_mem', action='store_true')
+    parser.add_argument('--jev-config', '--sys1-config', dest='jev_config')
     parser.add_argument('--jev-mock', action='store_true')
-    parser.add_argument('--no-jev-write', '--no-sys1-write', dest='no_sys1_write', action='store_true')
-    parser.add_argument('--no-jev-read', '--no-sys1-read', dest='no_sys1_read', action='store_true')
+    parser.add_argument('--no-jev-write', '--no-sys1-write', dest='no_jev_write', action='store_true')
+    parser.add_argument('--no-jev-read', '--no-sys1-read', dest='no_jev_read', action='store_true')
     args = parser.parse_args()
     if args.mode in ('build', 'test') and not args.input:
         parser.error('--input is required for build/test')
@@ -114,22 +114,22 @@ def main():
         command = [sys.executable, str(Path(__file__).with_name('test_fixed_memory.py')),
                    '--dataset', args.input, '--model', args.model, '--embedding-model', args.embedding_model,
                    '--cache-dir', args.cache_dir]
-        for flag in ('sys1mem', 'jev_mock', 'no_sys1_write', 'no_sys1_read'):
+        for flag in ('jev_mem', 'jev_mock', 'no_jev_write', 'no_jev_read'):
             if getattr(args, flag):
                 command.append('--' + flag.replace('_', '-'))
-        if args.sys1_config:
-            command.extend(['--sys1-config', args.sys1_config])
+        if args.jev_config:
+            command.extend(['--jev-config', args.jev_config])
         return subprocess.call(command)
     overrides = {}
-    if args.sys1mem:
+    if args.jev_mem:
         overrides.update(write_enabled=True, read_enabled=True)
     if args.jev_mock:
         overrides['jev_mock'] = True
-    if args.no_sys1_write:
+    if args.no_jev_write:
         overrides['write_enabled'] = False
-    if args.no_sys1_read:
+    if args.no_jev_read:
         overrides['read_enabled'] = False
-    config = JevMemConfig.load(args.sys1_config, **overrides)
+    config = JevMemConfig.load(args.jev_config, **overrides)
     cache_dir = Path(args.cache_dir)
     if config.write_enabled or config.read_enabled:
         digest = hashlib.sha256(json.dumps(config.to_dict(), sort_keys=True).encode()).hexdigest()[:12]

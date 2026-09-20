@@ -244,6 +244,74 @@ class TemporalParser:
 
         return dates
 
+    def describe_references(self, text: str, base_timestamp: datetime) -> List[dict]:
+        """Anchor relative expressions without inventing finer event precision.
+
+        These are text annotations, not replacements for observation timestamps.
+        In particular a week, weekend, month or year is never an exact day.
+        """
+        if base_timestamp is None:
+            return []
+        base = base_timestamp
+        anchor = self.normalize_date_format(base)
+        numbers = {'one': 1, 'two': 2, 'three': 3, 'four': 4, 'five': 5,
+                   'six': 6, 'seven': 7, 'eight': 8, 'nine': 9, 'ten': 10}
+        weekdays = {'mon': 0, 'tue': 1, 'wed': 2, 'thu': 3, 'fri': 4, 'sat': 5, 'sun': 6}
+        pattern = re.compile(
+            r'\b(?:yesterday|today|tomorrow|last night|'
+            r'(?:last|this|next|this past)\s+(?:weekend|week|month|year)|'
+            r'(?:last|next)\s+(?:mon(?:day)?|tue(?:s(?:day)?)?|wed(?:nesday)?|'
+            r'thu(?:rs(?:day)?)?|fri(?:day)?|sat(?:urday)?|sun(?:day)?)|'
+            r'(?:\d+|one|two|three|four|five|six|seven|eight|nine|ten)\s+'
+            r'(?:days?|weeks?|weekends?|months?|years?)\s+ago)\b', re.I)
+        references = []
+        for match in pattern.finditer(text):
+            phrase = match.group().lower()
+            normalized = precision = None
+            day_offset = {'yesterday': -1, 'last night': -1, 'today': 0, 'tomorrow': 1}.get(phrase)
+            if day_offset is not None:
+                normalized = self.normalize_date_format(base + timedelta(days=day_offset))
+                precision = 'day'
+            elif phrase.split()[-1] != 'month' and phrase.split()[-1][:3] in weekdays:
+                weekday = weekdays[phrase.split()[-1][:3]]
+                forward = phrase.startswith('next ')
+                delta = ((weekday - base.weekday()) if forward else (base.weekday() - weekday)) % 7 or 7
+                date = base + timedelta(days=delta if forward else -delta)
+                normalized = self.normalize_date_format(date)
+                precision = 'day'
+            else:
+                parts = phrase.split()
+                count = 1
+                direction = -1
+                if parts[-1] == 'ago':
+                    count = int(parts[0]) if parts[0].isdigit() else numbers[parts[0]]
+                    unit = parts[-2].rstrip('s')
+                else:
+                    unit = parts[-1]
+                    direction = 1 if parts[0] == 'next' else 0 if phrase.startswith('this ') and parts[1] != 'past' else -1
+                if unit == 'day':
+                    normalized = self.normalize_date_format(base + timedelta(days=direction * count))
+                    precision = 'day'
+                elif unit == 'year':
+                    year = base.year + direction * count
+                    if 1 <= year <= 9999:
+                        normalized, precision = str(year), 'year'
+                elif unit == 'month':
+                    year, month = divmod(base.year * 12 + base.month - 1 + direction * count, 12)
+                    if 1 <= year <= 9999:
+                        normalized, precision = datetime(year, month + 1, 1).strftime('%B %Y'), 'month'
+                elif unit in ('week', 'weekend'):
+                    if direction == 0:
+                        normalized = f'The {unit} of {anchor}'
+                    else:
+                        label = f'The {unit}' if count == 1 else f'{count} {unit}s'
+                        normalized = f'{label} {"before" if direction < 0 else "after"} {anchor}'
+                    precision = unit
+            if normalized:
+                references.append({'original': match.group(), 'normalized': normalized,
+                                   'precision': precision, 'anchor_date': base.date().isoformat()})
+        return references
+
     def normalize_date_format(self, date: datetime, context: str = "") -> str:
         """
         Normalize date to standard format based on context.
@@ -312,7 +380,7 @@ class TemporalParser:
         """
         temporal_keywords = [
             'when', 'what time', 'what date', 'which day',
-            'how long ago', 'how many days', 'how many weeks',
+            'how long', 'how many days', 'how many weeks',
             'how many months', 'how many years', 'what year',
             'what month', 'timeline', 'schedule', 'duration'
         ]

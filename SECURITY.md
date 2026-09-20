@@ -28,7 +28,8 @@ supported-release schedule yet.
 ## Before publication
 
 Run `python scripts/check_public_release.py --tracked` in the public checkout.
-The check looks for common credential formats, sensitive filenames, local paths,
+The check looks for common credential formats (including TypeSafe, OpenAI,
+GitHub and Hugging Face), sensitive filenames, local paths,
 and private artifacts; it is a guardrail, not proof that arbitrary content is
 safe. Review the staged diff yourself. Enable GitHub secret scanning, push
 protection, private vulnerability reporting, and branch protection where
@@ -36,5 +37,7 @@ available. Do not force-add ignored local files.
 
 For a workspace containing private experiments, use the allowlisted export
 described in [the release guide](docs/releasing.md). Its fresh repository has no
-earlier local history. If adding this code to an existing repository, audit that
-repository's history separately.
+earlier local history. Use `--all-files` on a clean export to include untracked
+files, and `--git-objects` to scan all local Git blobs, including earlier staged
+versions. Review repository history separately before adding it to an existing
+remote; these checks do not inspect remote-only history.

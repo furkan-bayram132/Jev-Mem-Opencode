@@ -91,7 +91,7 @@ class OpenAIController(BaseLLMController):
             messages=messages,
             response_format=response_format,
             temperature=temperature,
-            max_tokens=1000
+            max_tokens=2000
         )
 
         # Track token usage from this API call

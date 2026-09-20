@@ -14,6 +14,7 @@ import os
 import sys
 import json
 import logging
+from time import perf_counter
 from datetime import datetime
 from pathlib import Path
 from dotenv import load_dotenv
@@ -50,6 +51,7 @@ def validate_reuse_memory(path, config):
     saved = json.loads(config_path.read_text())
     # Older caches omitted this field while admission was mandatory.
     saved.setdefault("admission_enabled", True)
+    saved.setdefault("decision_schema_version", "noul-choice-v2")
     old = JevMemConfig(**saved).to_dict()
     current = config.to_dict()
     fields = ("write_enabled", "admission_enabled", "jev_mock", "jev_model", "decision_schema_version",
@@ -396,40 +398,40 @@ def main():
     parser.add_argument("--ablation", type=str, default=None,
                        choices=["basic_retrieval", "no_causal", "no_temporal", "flat_graph"],
                        help="Run ablation study with specific configuration")
-    parser.add_argument("--jev-mem", "--sys1mem", dest="sys1mem", action="store_true", help="Enable Jev-Mem write and retrieval control")
-    parser.add_argument("--jev-config", "--sys1-config", dest="sys1_config", help="Jev-Mem JSON configuration file")
+    parser.add_argument("--jev-mem", "--sys1mem", dest="jev_mem", action="store_true", help="Enable Jev-Mem write and retrieval control")
+    parser.add_argument("--jev-config", "--sys1-config", dest="jev_config", help="Jev-Mem JSON configuration file")
     parser.add_argument("--jev-mock", action="store_true", help="Use deterministic Jev fixtures (not benchmark quality)")
-    parser.add_argument("--no-jev-write", "--no-sys1-write", dest="no_sys1_write", action="store_true", help="Ablate Jev memory construction")
-    parser.add_argument("--no-jev-read", "--no-sys1-read", dest="no_sys1_read", action="store_true", help="Ablate Jev retrieval control")
+    parser.add_argument("--no-jev-write", "--no-sys1-write", dest="no_jev_write", action="store_true", help="Ablate Jev memory construction")
+    parser.add_argument("--no-jev-read", "--no-sys1-read", dest="no_jev_read", action="store_true", help="Ablate Jev retrieval control")
     args = parser.parse_args()
 
     from dataclasses import replace
     import hashlib
     from memory.jev_mem_config import JevMemConfig
     overrides = {}
-    if args.sys1mem:
+    if args.jev_mem:
         overrides.update(write_enabled=True, read_enabled=True)
     if args.jev_mock:
         overrides['jev_mock'] = True
-    if args.no_sys1_write:
+    if args.no_jev_write:
         overrides['write_enabled'] = False
-    if args.no_sys1_read:
+    if args.no_jev_read:
         overrides['read_enabled'] = False
-    sys1_config = JevMemConfig.load(args.sys1_config, **overrides)
-    sys1_active = sys1_config.write_enabled or sys1_config.read_enabled
+    jev_config = JevMemConfig.load(args.jev_config, **overrides)
+    jev_active = jev_config.write_enabled or jev_config.read_enabled
     reuse_memory = None
     if args.reuse_memory:
-        if args.rebuild or args.score_only or len(args.sample) != 1 or not sys1_config.read_enabled:
+        if args.rebuild or args.score_only or len(args.sample) != 1 or not jev_config.read_enabled:
             parser.error("--reuse-memory requires one sample, Jev-Mem retrieval, and no --rebuild/--score-only")
         try:
-            reuse_memory = validate_reuse_memory(args.reuse_memory, sys1_config)
+            reuse_memory = validate_reuse_memory(args.reuse_memory, jev_config)
         except ValueError as exc:
             parser.error(str(exc))
     experiment_suffix = ""
-    if sys1_active:
-        fingerprint = hashlib.sha256(json.dumps(sys1_config.to_dict(), sort_keys=True).encode()).hexdigest()[:12]
+    if jev_active:
+        fingerprint = hashlib.sha256(json.dumps(jev_config.to_dict(), sort_keys=True).encode()).hexdigest()[:12]
         experiment_suffix = "_jev_mem_" + fingerprint
-        print(f"Jev-Mem: write={sys1_config.write_enabled}, read={sys1_config.read_enabled}, admission={sys1_config.admission_enabled}, mock={sys1_config.jev_mock}")
+        print(f"Jev-Mem: write={jev_config.write_enabled}, read={jev_config.read_enabled}, admission={jev_config.admission_enabled}, mock={jev_config.jev_mock}")
     from memory.test_harness import TestHarness
     from memory.evaluator import Evaluator
 
@@ -510,23 +512,32 @@ def main():
             print(f"Embedding model: {args.embedding_model}")
 
         # Initialize memory builder
-        if sys1_active:
+        if jev_active:
             cache_dir = str(Path(cache_dir) / experiment_suffix.lstrip('_'))
-            sample_config = replace(sys1_config, audit_path=sys1_config.audit_path or str(Path(cache_dir) / "decisions.jsonl"))
+            sample_config = replace(jev_config, audit_path=jev_config.audit_path or str(Path(cache_dir) / "decisions.jsonl"))
         else:
-            sample_config = sys1_config
+            sample_config = jev_config
         builder = MemoryBuilder(
             cache_dir=cache_dir,
             llm_model=args.model,
             use_episodes=args.use_episodes,
             embedding_model=args.embedding_model,
-            sys1_config=sample_config
+            jev_config=sample_config
         )
 
         # Build or load memory
+        memory_timing = {
+            'cache_hit': False,
+            'graph_construction_seconds': None,
+            'graph_save_seconds': None,
+            'graph_load_seconds': None,
+        }
         cache_file = Path(cache_dir) / "graph.json"
         if reuse_memory:
+            started = perf_counter()
             builder.load(reuse_memory)
+            memory_timing['graph_load_seconds'] = perf_counter() - started
+            memory_timing['cache_hit'] = True
             if builder.trg.vector_db.dimension != builder.trg.encoder.dimension:
                 parser.error("Reused vectors do not match the selected embedding model")
             sources = {n.attributes.get('source') for n in builder.trg.graph_db.nodes.values()
@@ -536,13 +547,29 @@ def main():
             print(f"Reusing constructed memory: {reuse_memory}")
         elif cache_file.exists() and not args.rebuild:
             logger.info("Loading cached memory...")
+            started = perf_counter()
             builder.load()
+            memory_timing['graph_load_seconds'] = perf_counter() - started
+            memory_timing['cache_hit'] = True
         else:
             logger.info("Building memory...")
+            started = perf_counter()
             stats = builder.build_memory(sample)
+            memory_timing['graph_construction_seconds'] = perf_counter() - started
+            print(f"Sample {sample_id} graph construction time: "
+                  f"{memory_timing['graph_construction_seconds']:.2f} seconds")
+            started = perf_counter()
             builder.save()
-            if sys1_config.write_enabled:
+            memory_timing['graph_save_seconds'] = perf_counter() - started
+            print(f"Sample {sample_id} graph save time: "
+                  f"{memory_timing['graph_save_seconds']:.2f} seconds")
+            if jev_config.write_enabled:
                 print(f"Conversation turns stored: {stats['events_created']}; rejected: {stats['events_rejected']}")
+
+        if memory_timing['cache_hit']:
+            print(f"Sample {sample_id} graph construction skipped (cached graph); "
+                  f"load time: {memory_timing['graph_load_seconds']:.2f} seconds")
+        builder.jev.audit.emit("memory_timing", sample_id=sample_id, **memory_timing)
 
         # Get memory stats
         mem_stats = builder.trg.get_statistics()
@@ -567,7 +594,7 @@ def main():
             entity_session_map=builder.entity_session_map if hasattr(builder, 'entity_session_map') else None,
             entity_dia_map=builder.entity_dia_map if hasattr(builder, 'entity_dia_map') else None,
             ablation_config=ablation_config,
-            sys1_config=sample_config,
+            jev_config=sample_config,
             jev_client=builder.jev
         )
 
@@ -709,7 +736,8 @@ def main():
                 'timestamp': datetime.now().isoformat(),
                 'embedding_model': args.embedding_model,
                 'llm_model': args.model,
-                'jev_mem_config': sys1_config.to_dict(),
+                'jev_mem_config': jev_config.to_dict(),
+                'memory_timing': memory_timing,
                 'results': results,
                 'stats': {
                     'overall': {
@@ -746,6 +774,7 @@ def main():
             'avg_bleu1': avg_bleu1,
             'avg_llm': avg_llm_score,
             'accuracy_no_cat5': correct_no_cat5/total_no_cat5*100 if total_no_cat5 > 0 else 0,
+            'memory_timing': memory_timing,
             'category_breakdown': category_breakdown
         })
 

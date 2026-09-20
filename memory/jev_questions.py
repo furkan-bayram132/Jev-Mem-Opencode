@@ -63,7 +63,7 @@ def memory_type_questions():
     }
 
 
-def relation_questions(index, infer_identity=True, infer_time=True):
+def relation_questions(index, infer_identity=True):
     pair = f"Compare `new_memory.content` with `candidates[{index}].content`. "
     questions = {
         "semantic": noul(pair + "Would a semantic link between these observations help retrieve a shared specific topic or fact?",
@@ -75,26 +75,11 @@ def relation_questions(index, infer_identity=True, infer_time=True):
         "caused_by": noul(pair + "Does the candidate event cause, enable or explain the event in `new_memory.content`?",
             "The supplied accounts support this direction of causal influence.",
             "Only similarity, chronology, a shared entity, or insufficient causal evidence."),
-        "same_episode": noul(pair + "Do both observations refer to the same particular event or episode?",
-            "They describe the same identifiable episode, possibly different aspects of it.",
-            "Separate events or only a shared person/topic; there is no evidence of a common episode."),
     }
     if infer_identity:
         questions["entity"] = noul(pair + f"Using `new_memory.entities` and `candidates[{index}].entities`, do any names or aliases refer to the same real-world entity?",
             "Context supports a shared identity despite differing names or aliases.",
             "Distinct entities or insufficient evidence to resolve the alias; similar names alone are insufficient.")
-    if infer_time:
-        questions["temporal_order"] = Choice(
-            instructions=pair + "What temporal relation between the described events is established by the supplied language? Choose unknown if order is unstated or ambiguous.",
-            criteria={
-                "before": "The new-memory event finishes before the candidate event starts.",
-                "after": "The new-memory event starts after the candidate event finishes.",
-                "during": "The new-memory event is strictly contained within the candidate event's time interval.",
-                "contains": "The candidate event is strictly contained within the new-memory event's time interval.",
-                "overlaps": "The events partially overlap in time, but neither interval contains the other.",
-                "same_time": "The events have the same stated time or equal time intervals.",
-                "unknown": "Insufficient temporal evidence, inconsistent ordering, or no applicable relation.",
-            })
     return questions
 
 

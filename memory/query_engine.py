@@ -884,6 +884,38 @@ class QueryEngine:
 
         return final_context, answer_context
 
+    def _temporal_keyword_search(self, question: str, limit: int = 40) -> List[EventNode]:
+        """Weight distinct event terms over repeated names and substring matches.
+
+        Exact postings avoid counting the same query word once for every matching
+        index key. This is particularly important for rare events in date queries.
+        """
+        import math
+        import re
+        from .graph_db import NodeType
+        words = re.findall(r'\w+', re.sub(r"['’]s\b", '', question.lower()))
+        stop = {'the', 'a', 'an', 'is', 'was', 'are', 'were', 'what', 'when', 'where',
+                'who', 'how', 'did', 'does', 'do', 'has', 'had', 'have', 'been', 'be',
+                'to', 'of', 'in', 'on', 'at', 'for', 'and', 'with', 'go', 'long'}
+        terms = {word for word in words if word not in stop and len(word) >= 2}
+        scores = {}
+        count = len(self.trg.graph_db.nodes)
+        for term in sorted(terms):
+            postings = set(self.node_index.get(term, ()))
+            if not postings and len(term) >= 5:
+                # Conservative singular/plural fallback, without arbitrary
+                # substring matches such as "me" inside a participant's name.
+                stem = term[:-1] if term.endswith('s') else term
+                postings.update(self.node_index.get(stem, ()))
+                postings.update(self.node_index.get(stem + 's', ()))
+            weight = math.log1p(count / (1 + len(postings)))
+            for node_id in postings:
+                scores[node_id] = scores.get(node_id, 0.0) + weight
+        ranked = sorted(scores, key=lambda node_id: (-scores[node_id], node_id))
+        return [self.trg.graph_db.nodes[node_id] for node_id in ranked
+                if node_id in self.trg.graph_db.nodes
+                and self.trg.graph_db.nodes[node_id].node_type == NodeType.EVENT][:limit]
+
     def _keyword_search(self, question: str, limit: int = 40) -> List[EventNode]:
         """Search using keyword index with proper scoring for index matches."""
         question_lower = question.lower()

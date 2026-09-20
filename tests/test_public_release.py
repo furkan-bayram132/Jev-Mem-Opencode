@@ -8,7 +8,7 @@ import sys
 import pytest
 
 from memory.jev_mem_config import JevMemConfig
-from scripts.check_public_release import private_path, scan_content, scan_index, scan_worktree
+from scripts.check_public_release import private_path, scan_content, scan_index, scan_worktree, scan_all_files, scan_git_objects
 from scripts.export_public_repo import export
 
 
@@ -37,6 +37,9 @@ def test_private_artifacts_are_rejected(name):
     "github_pat_" + "a" * 50,
     "OPENAI_API_KEY=" + "a1" * 32,
     'api_key="' + "a1" * 32 + '"',
+    "hf_" + "a" * 32,
+    "xoxb-" + "b" * 32,
+    "HF_TOKEN=" + "c" * 32,
 ])
 def test_credentials_detected_without_printing_values(credential):
     findings = scan_content("example.py", credential.encode())
@@ -93,6 +96,26 @@ def test_tracked_check_reads_index_not_working_copy(tmp_path):
     assert findings and secret not in str(findings)
     git("add", "sample.py")
     assert not scan_index(tmp_path)[1]
+    # Re-staging a clean file leaves the earlier secret in local Git objects.
+    _, old_findings = scan_git_objects(tmp_path)
+    assert old_findings and secret not in str(old_findings)
+
+
+def test_complete_release_check_finds_untracked_files(tmp_path):
+    (tmp_path / "public-release-files.txt").write_text("public-release-files.txt\nREADME.md\n")
+    (tmp_path / "README.md").write_text("# Jev-Mem\n")
+    assert not scan_all_files(tmp_path)[1]
+    (tmp_path / ".env").write_text("HF_TOKEN=" + "x" * 32)
+    findings = scan_all_files(tmp_path)[1]
+    assert {f.reason for f in findings} >= {"file outside public allowlist", "private artifact path"}
+
+
+def test_packaging_manifest_matches_release_allowlist():
+    root = Path(__file__).resolve().parents[1]
+    names, _ = scan_worktree(root)
+    packaged = {line.removeprefix("include ") for line in (root / "MANIFEST.in").read_text().splitlines()
+                if line.startswith("include ")}
+    assert packaged == set(names)
 
 
 def test_legacy_imports_and_saved_config_are_compatible(tmp_path):

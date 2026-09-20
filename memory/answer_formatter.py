@@ -513,7 +513,8 @@ class AnswerFormatter:
         question_lower = question.lower()
         is_hypothetical = question_lower.startswith(('would', 'could', 'might'))
         is_open_domain = category == 3
-        is_temporal = category == 2
+        from .temporal_parser import TemporalParser
+        is_temporal = category == 2 or (category is None and TemporalParser().is_temporal_question(question))
         is_multihop = category == 1
         is_singlehop = category == 4
 
@@ -547,16 +548,25 @@ ANSWER:"""
 QUESTION: {question}
 
 TEMPORAL RULES:
-1. For "when" questions: Extract or calculate the date/time
-   - Use "Event dates mentioned" for relative dates (e.g., "yesterday", "last week")
-   - Format dates as: D Month YYYY (e.g., "7 May 2023" not "07 May 2023")
-2. For "how long": Extract the duration mentioned
-3. For "which month/year": Extract just the month or year
-4. Use event dates NOT conversation timestamps
-5. If no date/time found → "Information not found"
-6. Preserve the precision of the evidence: a year or month must not become an invented exact day.
-7. Anchor "yesterday" and "last week" to the date of the conversation containing that statement.
-8. For "how long ago", return elapsed time, not a calendar date.
+1. Locate the requested person's event in the original statements. Read adjacent
+   dialogue turns to resolve references such as "it", "that book", and "seven years now".
+   Distinguish repeated events using any month/year or other qualifier in the question.
+2. Each [Conversation] date anchors relative expressions ONLY in that statement.
+   It is not automatically the event date. Never borrow another statement's anchor.
+3. Use the anchored time expressions below each statement when they describe the
+   requested event. A relative expression IS time evidence; do not report missing
+   information merely because the original text lacks an absolute date.
+4. Preserve precision: "last week" means the week before that statement's date,
+   not exactly seven days earlier. "Last weekend" remains a weekend. "Last month"
+   is a calendar month, and "last year" is a year; do not invent a day.
+5. For day-level evidence, return D Month YYYY. For week/weekend evidence, return
+   an anchored expression such as "The week before [conversation date]".
+   For month/year evidence, return only the supported month/year.
+6. For "how long", give the supported duration, optionally with the start year if
+   directly calculable. For "how long ago", give elapsed time rather than a date.
+7. Consider all relevant statements, not just the first ranked memory. If the
+   event and its time cannot be established from the supplied evidence, answer
+   "Information not found". Do not guess an event date from proximity alone.
 
 ANSWER (only the date/time/duration):"""
             # Special handling for single-hop questions (category 4) - SIMPLE FACTUAL QUESTIONS
@@ -808,11 +818,56 @@ Answer (concise, direct):"""
 
         # Detect question type for better formatting
         q_lower = question.lower()
-        is_temporal = "when" in q_lower or "date" in q_lower
+        from .temporal_parser import TemporalParser
+        temporal_parser = TemporalParser()
+        is_temporal = temporal_parser.is_temporal_question(question)
         is_multihop = any(pattern in q_lower for pattern in [
             'research', 'identity', 'relationship', 'career', 'activities',
             'participate', 'involved', 'pursue', 'field', 'both', 'move from'
         ])
+
+        if is_temporal:
+            # Keep original text, attribution and the date anchor together. Relative
+            # dates are derived on read as well, so existing graphs remain usable.
+            context_parts.append("Temporal evidence (each statement has its own conversation date):")
+            # Keep contiguous dialogue turns together so a question or named
+            # object is not separated from its date-bearing reply by rank order.
+            groups, ungrouped = {}, []
+            for rank, node in enumerate(nodes):
+                attrs = getattr(node, 'attributes', {})
+                match = re.fullmatch(r'D(\d+):(\d+)', str(attrs.get('dia_id', '')))
+                if match:
+                    key = (attrs.get('source'), match.group(1))
+                    groups.setdefault(key, []).append((int(match.group(2)), rank, node))
+                else:
+                    ungrouped.append((rank, [node]))
+            blocks = ungrouped
+            for entries in groups.values():
+                current, ranks, previous = [], [], None
+                for turn, rank, node in sorted(entries, key=lambda entry: entry[0]):
+                    if previous is not None and turn != previous + 1:
+                        blocks.append((min(ranks), current))
+                        current, ranks = [], []
+                    current.append(node)
+                    ranks.append(rank)
+                    previous = turn
+                if current:
+                    blocks.append((min(ranks), current))
+            ordered = [node for _, block in sorted(blocks, key=lambda block: block[0]) for node in block]
+            for i, node in enumerate(ordered, 1):
+                content = self._get_original_text(node)
+                attributes = getattr(node, 'attributes', {})
+                speaker = attributes.get('speaker', 'unknown')
+                dialogue = attributes.get('dia_id', node.node_id)
+                date = temporal_parser.normalize_date_format(node.timestamp) if node.timestamp else 'unknown'
+                context_parts.append(f"\n{i}. [Dialogue: {dialogue}] [Conversation: {date}] "
+                                     f"[Speaker: {speaker}] {content}")
+                references = temporal_parser.describe_references(content, node.timestamp)
+                if references:
+                    hints = '; '.join(f"{r['original']!r} → {r['normalized']} ({r['precision']} precision)"
+                                      for r in references)
+                    context_parts.append(f"   Anchored time expressions: {hints}")
+            return '\n'.join(context_parts)
 
         if is_multihop:
             # Keep first-person statements attributable and relative dates anchored.
@@ -827,65 +882,6 @@ Answer (concise, direct):"""
                 context_parts.append(f"\n{i}. [Dialogue: {dialogue}] [Conversation: {date}] "
                                      f"[Speaker: {speaker}] {content}{enrichment}")
 
-        elif is_temporal:
-            # For temporal questions, prioritize by RELEVANCE, not chronological order
-            context_parts.append("Information ranked by relevance for temporal question (MOST relevant first):")
-
-            for i, node in enumerate(nodes, 1):  # Use all retrieved nodes (includes Q&A pairs)
-                # Handle both EventNode and EpisodeNode
-                content = self._get_original_text(node)
-
-                # Include speaker information if available
-                speaker = ""
-                if hasattr(node, 'attributes') and 'speaker' in node.attributes:
-                    speaker = f"[Speaker: {node.attributes['speaker']}] "
-
-                # Mark the most relevant nodes clearly
-                if i == 1:
-                    relevance_marker = "**MOST RELEVANT** "
-                elif i == 2:
-                    relevance_marker = "*Highly Relevant* "
-                elif i <= 4:
-                    relevance_marker = "*Relevant* "
-                elif i <= 6:
-                    relevance_marker = "Somewhat relevant "
-                else:
-                    relevance_marker = ""
-
-                # Show the conversation date
-                date_str = ""
-                if hasattr(node, 'timestamp') and node.timestamp:
-                    date_str = f"[Conversation: {node.timestamp.strftime('%d %B %Y')}] "
-
-                # Add semantic enrichment after main content
-                enrichment = self._get_semantic_enrichment(node)
-                context_parts.append(f"\n{i}. {relevance_marker}{date_str}{speaker}{content}{enrichment}")
-
-                # CRITICAL: Show dates_mentioned if available (these are the actual event dates)
-                if hasattr(node, 'attributes') and 'dates_mentioned' in node.attributes:
-                    dates_mentioned = node.attributes['dates_mentioned']
-                    if dates_mentioned:
-                        date_strs = []
-                        for date_info in dates_mentioned:
-                            if 'original' in date_info:
-                                date_strs.append(f"'{date_info['original']}'")
-                                if 'parsed' in date_info and date_info['parsed']:
-                                    # Parse and format the date
-                                    try:
-                                        from datetime import datetime as dt
-                                        parsed_date = dt.fromisoformat(date_info['parsed'].replace('T', ' ').replace('Z', ''))
-                                        formatted = parsed_date.strftime('%d %B %Y')
-                                        date_strs[-1] += f" (={formatted})"
-                                    except:
-                                        pass
-                        if date_strs:
-                            context_parts.append(f"   **Event dates mentioned: {', '.join(date_strs)}**")
-
-                # Add original text if short and relevant
-                if hasattr(node, 'attributes') and 'original_text' in node.attributes:
-                    orig_text = node.attributes['original_text']
-                    if len(orig_text) < 200:
-                        context_parts.append(f"   Original: {orig_text}")
 
         else:
             # Format as relevant information list - PRIORITIZE TOP NODES

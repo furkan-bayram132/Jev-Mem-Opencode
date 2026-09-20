@@ -18,14 +18,11 @@ include NOTICE
 include README.md
 include SECURITY.md
 include config/jev_mem.json
-include config/jev_mem_accuracy.json
 include data/README.md
 include docs/algorithm.md
 include docs/evaluation.md
 include docs/figures/draw_jev_mem_overview.py
 include docs/figures/jev_mem_overview.mmd
-include docs/figures/jev_mem_overview.pdf
-include docs/figures/jev_mem_overview.png
 include docs/figures/jev_mem_overview.svg
 include docs/implementation.md
 include docs/releasing.md
@@ -50,6 +47,7 @@ include memory/jev_questions.py
 include memory/keyword_enrichment.py
 include memory/llm_judge.py
 include memory/longmemeval_evaluator.py
+include memory/longmemeval_jev.py
 include memory/memory_builder.py
 include memory/mock_encoder.py
 include memory/openai_encoder.py
@@ -70,12 +68,10 @@ include scripts/check_public_release.py
 include scripts/evaluate_anchor_recall.py
 include scripts/export_public_repo.py
 include setup.sh
-include sys1mem_demo.py
 include test_fixed_memory.py
 include test_longmemeval_chunked.py
 include tests/test_jev_mem.py
+include tests/test_longmemeval_jev.py
 include tests/test_public_release.py
-include utils/load_dataset.py
 include utils/memory_layer.py
 include utils/utils.py
-global-exclude __pycache__ *.py[cod] .DS_Store

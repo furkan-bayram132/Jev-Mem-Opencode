@@ -14,7 +14,8 @@ class JevMemConfig:
     admission_enabled: bool = False
     jev_mock: bool = False
     jev_model: str = "jev-latest"
-    decision_schema_version: str = "noul-choice-v2"
+    decision_schema_version: str = "noul-choice-v3-magma-temporal"
+    retrieval_schema_version: str = "anchored-temporal-v1"
     jev_base_url: str = "https://api.typesafe.ai"
     timeout_seconds: float = 3.0
     max_retries: int = 2

@@ -73,8 +73,12 @@ def test_canonical_node_multigraph_and_direction(tmp_path):
     links = list(builder.trg.graph_db.links.values())
     assert {link.link_type for link in links} == set(LinkType)
     for link in links:
-        if link.link_type in (LinkType.CAUSAL, LinkType.TEMPORAL):
+        if link.link_type == LinkType.CAUSAL:
             assert (link.source_node_id, link.target_node_id) == (old.node_id, new.node_id)
+        if link.link_type == LinkType.TEMPORAL:
+            expected = ((new.node_id, old.node_id) if link.properties["sub_type"] == "SUCCEEDS"
+                        else (old.node_id, new.node_id))
+            assert (link.source_node_id, link.target_node_id) == expected
 
 
 def test_no_causality_from_similarity_and_no_timestamp_questions(tmp_path):
@@ -90,12 +94,10 @@ def test_no_causality_from_similarity_and_no_timestamp_questions(tmp_path):
             assert not any(key.endswith(("_temporal_order", "_entity")) for key in questions)
 
 
-def test_implicit_temporal_and_alias_relations(tmp_path):
+def test_magma_sequence_and_jev_alias_relations_without_timestamps(tmp_path):
     def mock(operation, state, questions):
         values = fixture_answers(operation, state, questions)
-        for key in questions:
-            if key.endswith("_temporal_order"):
-                values[key] = choice_fixture(questions[key], "before")
+        assert not any(key.endswith(("_temporal_order", "_same_episode")) for key in questions)
         return values
     builder = make_builder(tmp_path, mock=mock)
     old = builder.build("Dr. Li moved to Dallas", metadata={"entities": ["Dr. Li"]})
@@ -366,7 +368,7 @@ def test_magma_read_path_remains_usable(tmp_path):
     context, evidence = engine.query("Alice project", top_k=2)
     assert context.anchor_nodes
     assert evidence
-    assert context.metadata.get('controller') != 'sys1mem'
+    assert context.metadata.get('controller') != 'jev-mem'
 
 
 def test_faiss_cache_roundtrip(tmp_path):
@@ -578,30 +580,58 @@ def test_admission_setting_is_validated_and_part_of_cache_config():
         JevMemConfig(admission_enabled="false")
 
 
-@pytest.mark.parametrize("option,subtype,reverse", [
-    ("before", "PRECEDES", False), ("after", "PRECEDES", True),
-    ("during", "DURING", False), ("contains", "DURING", True),
-    ("overlaps", "OVERLAPS", False), ("same_time", "CONCURRENT", False),
-    ("unknown", None, False),
-])
-def test_temporal_choice_creates_only_selected_relation(tmp_path, option, subtype, reverse):
-    def mock(op, state, questions):
-        values = fixture_answers(op, state, questions)
-        for key, question in questions.items():
-            if key.endswith("temporal_order"):
-                values[key] = choice_fixture(question, option)
-                values[key]["confidence"] = 0.1  # Gate on option probability, not this summary.
-        return values
-    builder = make_builder(tmp_path, mock=mock)
-    old = builder.build("Alice attended a painting workshop")
-    new = builder.build("Alice presented paintings at a gallery")
-    edges = [edge for edge in builder.trg.graph_db.links.values() if edge.link_type == LinkType.TEMPORAL]
-    assert len(edges) == (1 if subtype else 0)
-    if subtype:
-        edge = edges[0]
-        assert edge.properties["sub_type"] == subtype
-        assert (edge.source_node_id, edge.target_node_id) == (
-            (old.node_id, new.node_id) if reverse else (new.node_id, old.node_id))
+@pytest.mark.parametrize("count", [1, 2, 12])
+@pytest.mark.parametrize("dated", [True, False])
+def test_incremental_temporal_edges_match_magma_batch_rules(tmp_path, count, dated):
+    builder = make_builder(tmp_path, JevMemConfig(write_enabled=True, jev_mock=True, candidate_top_k=1))
+    nodes = [builder.build(f"Observation number {i}",
+                           datetime(2026, 9, 1 + i // 4) if dated else None,
+                           {"entities": []}) for i in range(count)]
+    baseline = make_builder(tmp_path / "baseline")
+    for node in nodes:
+        baseline.trg.graph_db.add_node(node)
+    ids = [node.node_id for node in nodes]
+    baseline.create_temporal_links(ids)
+    baseline.create_temporal_proximity_links(ids)
+    def temporal_edges(graph):
+        return sorted((e.source_node_id, e.target_node_id, json.dumps(e.properties, sort_keys=True))
+                      for e in graph.links.values() if e.link_type == LinkType.TEMPORAL)
+    assert temporal_edges(builder.trg.graph_db) == temporal_edges(baseline.trg.graph_db)
+    assert builder.trg.stats["links_created"] == len(builder.trg.graph_db.links)
+
+
+def test_temporal_insertion_failure_rolls_back_node_and_edges(tmp_path, monkeypatch):
+    builder = make_builder(tmp_path)
+    add_memories(builder, 1)
+    before = dict(builder.trg.stats)
+    original = builder.trg.graph_db.add_link
+    def fail_reverse(link):
+        if link.properties.get("sub_type") == "SUCCEEDS":
+            raise RuntimeError("temporal insertion failed")
+        return original(link)
+    monkeypatch.setattr(builder.trg.graph_db, "add_link", fail_reverse)
+    with pytest.raises(RuntimeError, match="temporal insertion"):
+        builder.build("Alice works on another project", datetime(2026, 9, 2))
+    assert len(builder.trg.graph_db.nodes) == builder.trg.vector_db.size() == 1
+    assert not builder.trg.graph_db.links
+    assert builder.trg.stats == before
+
+
+def test_previous_temporal_policy_cache_requires_rebuild(tmp_path):
+    from test_fixed_memory import validate_reuse_memory
+    builder = make_builder(tmp_path)
+    add_memories(builder, 2)
+    builder.save()
+    path = tmp_path / "jev_mem_config.json"
+    config = builder.sys1_config.to_dict()
+    for legacy_version in ("noul-choice-v2", None):
+        if legacy_version is None:
+            config.pop("decision_schema_version", None)
+        else:
+            config["decision_schema_version"] = legacy_version
+        path.write_text(json.dumps(config))
+        with pytest.raises(ValueError, match="decision_schema_version"):
+            validate_reuse_memory(tmp_path, builder.sys1_config)
 
 
 @pytest.mark.parametrize("option,probability", [("keep_separate", 1.0), ("uncertain", 1.0), ("merge", 0.55), ("promote", 0.55)])
@@ -721,6 +751,7 @@ def test_reuse_memory_allows_read_tuning_but_rejects_write_changes(tmp_path):
     builder.save()
     tuned = replace(builder.sys1_config, anchor_count=20, maximum_edges=1200)
     source = validate_reuse_memory(builder.cache_dir, tuned)
+    assert validate_reuse_memory(source, replace(tuned, retrieval_schema_version="future-read-policy")) == source
     restored = make_builder(tmp_path / "new_experiment", tuned)
     restored.load(source)
     assert len(restored.trg.graph_db.nodes) == restored.trg.vector_db.size() == 2
@@ -729,3 +760,87 @@ def test_reuse_memory_allows_read_tuning_but_rejects_write_changes(tmp_path):
         validate_reuse_memory(source, replace(tuned, admission_enabled=True))
     with pytest.raises(ValueError, match="construction settings"):
         validate_reuse_memory(source, replace(tuned, candidate_top_k=20))
+
+
+@pytest.mark.parametrize('text,anchor,normalized,precision', [
+    ('I arrived yesterday.', datetime(2024, 3, 1), '29 February 2024', 'day'),
+    ('It happened last Fri.', datetime(2024, 3, 2), '1 March 2024', 'day'),
+    ('It happened last Tues.', datetime(2024, 3, 7), '5 March 2024', 'day'),
+    ('I visited last week.', datetime(2024, 3, 7), 'The week before 7 March 2024', 'week'),
+    ('We traveled last weekend.', datetime(2024, 3, 7), 'The weekend before 7 March 2024', 'weekend'),
+    ('We traveled two weekends ago.', datetime(2024, 3, 7), '2 weekends before 7 March 2024', 'weekend'),
+    ('I started last month.', datetime(2024, 3, 31), 'February 2024', 'month'),
+    ('I will visit next month.', datetime(2024, 12, 31), 'January 2025', 'month'),
+    ('I moved last year.', datetime(2024, 2, 29), '2023', 'year'),
+])
+def test_temporal_annotations_preserve_precision_and_calendar(text, anchor, normalized, precision):
+    from memory.temporal_parser import TemporalParser
+    refs = TemporalParser().describe_references(text, anchor)
+    assert len(refs) == 1
+    assert refs[0]['normalized'] == normalized
+    assert refs[0]['precision'] == precision
+    assert refs[0]['anchor_date'] == anchor.date().isoformat()
+
+
+def test_temporal_annotations_missing_date_and_word_boundaries():
+    from memory.temporal_parser import TemporalParser
+    parser = TemporalParser()
+    assert parser.describe_references('I arrived yesterday.', None) == []
+    refs = parser.describe_references('Last weekend was fun.', datetime(2024, 3, 7))
+    assert len(refs) == 1 and refs[0]['precision'] == 'weekend'
+    assert parser.describe_references('My last yearly review', datetime(2024, 3, 7)) == []
+
+
+def test_write_temporal_annotations_do_not_change_observation_time(tmp_path):
+    builder = make_builder(tmp_path)
+    anchor = datetime(2024, 3, 1)
+    node = builder.build('Alex visited the museum yesterday.', anchor)
+    assert node.timestamp == anchor
+    assert node.attributes['temporal_references'][0]['normalized'] == '29 February 2024'
+    builder.save()
+    restored = make_builder(tmp_path)
+    restored.load()
+    saved = restored.trg.graph_db.get_node(node.node_id)
+    assert saved.attributes['temporal_references'] == node.attributes['temporal_references']
+
+
+def test_temporal_context_keeps_date_reply_with_adjacent_question():
+    from memory.answer_formatter import AnswerFormatter
+    question = EventNode(timestamp=datetime(2024, 3, 1), content_narrative='How long have you been painting?',
+                         attributes={'dia_id': 'D1:7', 'speaker': 'Alex'})
+    reply = EventNode(timestamp=datetime(2024, 3, 1), content_narrative='Seven years now.',
+                      attributes={'dia_id': 'D1:8', 'speaker': 'Sam'})
+    other = EventNode(timestamp=datetime(2024, 4, 2), content_narrative='I went walking yesterday.',
+                      attributes={'dia_id': 'D2:1', 'speaker': 'Alex'})
+    formatter = AnswerFormatter()
+    context = formatter.format_context_for_qa([reply, other, question], 'How long has Sam been painting?')
+    assert context.index('How long have you been painting?') < context.index('Seven years now.') < context.index('walking')
+    assert '[Conversation: 1 March 2024]' in context
+    assert '1 April 2024' in context
+    assert context.count('[Dialogue:') == 3
+    assert 'duration' in formatter.build_qa_prompt(context, 'How long has Sam been painting?')
+
+
+def test_temporal_keyword_ranking_prioritizes_rare_event_over_name(tmp_path):
+    builder = make_builder(tmp_path)
+    common = [EventNode(node_id=f'common-{i}', content_narrative='Alex talked with friends.') for i in range(20)]
+    target = EventNode(node_id='target', content_narrative='Alex took a ferry trip.')
+    for node in [*common, target]:
+        builder.trg.graph_db.add_node(node)
+    builder.node_index = {'alex': {n.node_id for n in [*common, target]},
+                          'friend': {n.node_id for n in common},
+                          'ferry': {target.node_id}, 'trip': {target.node_id},
+                          'me': {n.node_id for n in common}}
+    engine = engine_for(builder)
+    found = engine._temporal_keyword_search("When was Alex's ferry trip?", limit=3)
+    assert found[0].node_id == 'target'
+    assert len(found) == 3
+
+
+def test_jev_state_preserves_observation_vs_event_time():
+    from memory.jev_mem_policies import node_state
+    node = EventNode(timestamp=datetime(2024, 3, 1), content_narrative='I visited yesterday.')
+    state = node_state(node, include_temporal=True)
+    assert state['timestamp'] == '2024-03-01T00:00:00'
+    assert state['temporal_references'][0]['normalized'] == '29 February 2024'
+    assert 'observation_time' in state['timestamp_role']

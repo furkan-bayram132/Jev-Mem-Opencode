@@ -47,10 +47,15 @@ def timestamp_value(timestamp):
     return timestamp.replace(tzinfo=timestamp.tzinfo or timezone.utc).timestamp()
 
 
-def node_state(node):
-    return {"id": node.node_id, "content": node.content_narrative,
+def node_state(node, *, include_temporal=False):
+    state = {"id": node.node_id, "content": node.content_narrative,
             "timestamp": node.timestamp.isoformat() if node.timestamp else None,
             "entities": node.attributes.get("entities", [])}
+    if include_temporal:
+        from .temporal_parser import TemporalParser
+        state.update(timestamp_role="observation_time; not necessarily the event date",
+                     temporal_references=TemporalParser().describe_references(node.content_narrative, node.timestamp))
+    return state
 
 
 def cosine(left, right):
@@ -120,19 +125,16 @@ class WritePolicy:
     def relations(self, node, candidates):
         if not candidates:
             return []
-        from typesafe_sdk import Choice
-        from .jev_questions import relation_questions, choice_fixture
+        from .jev_questions import relation_questions
         questions, mock = {}, {}
         for i, other in enumerate(candidates):
             prefix = "pair_" + str(i) + "_"
             exact_entities = set(node.attributes["entities"]) & set(other.attributes.get("entities", []))
-            prompts = relation_questions(i, infer_identity=not exact_entities,
-                                         infer_time=node.timestamp is None or other.timestamp is None)
+            prompts = relation_questions(i, infer_identity=not exact_entities)
             for name, question in prompts.items():
                 key = prefix + name
                 questions[key] = question
-                mock[key] = (choice_fixture(question, "unknown") if isinstance(question, Choice) else
-                             cosine(node.embedding_vector, other.embedding_vector) if name == "semantic" else 0.0)
+                mock[key] = cosine(node.embedding_vector, other.embedding_vector) if name == "semantic" else 0.0
         result = self.client.evaluate("relations", {"new_memory": node_state(node),
                                      "candidates": [node_state(n) for n in candidates]}, questions, mock_values=mock)
         if result is None:
@@ -145,7 +147,7 @@ class WritePolicy:
                     source, target = (other, node) if reverse else (node, other)
                     links.append(Link(source_node_id=source.node_id, target_node_id=target.node_id,
                                       link_type=kind, properties={"sub_type": subtype, "confidence": probability,
-                                      "probability": probability}, metadata={"controller": "sys1mem", "origin": origin}))
+                                      "probability": probability}, metadata={"controller": "jev-mem", "origin": origin}))
             values = result.values
             add(LinkType.SEMANTIC, "RELATED_TO", values[prefix + "semantic"], origin=result.source)
             add(LinkType.CAUSAL, "LEADS_TO", values[prefix + "causes"], origin=result.source)
@@ -153,20 +155,6 @@ class WritePolicy:
             exact = set(node.attributes["entities"]) & set(other.attributes.get("entities", []))
             add(LinkType.ENTITY, "SHARED_ENTITY", 1.0 if exact else values[prefix + "entity"],
                 origin="exact_identifier" if exact else result.source)
-            a, b = timestamp_value(node.timestamp), timestamp_value(other.timestamp)
-            if a is not None and b is not None:
-                add(LinkType.TEMPORAL, "CONCURRENT" if a == b else "PRECEDES", 1.0,
-                    reverse=a > b, origin="timestamp")
-            else:
-                order = result.choices[prefix + "temporal_order"]
-                probability = order.probabilities[order.choice]
-                temporal_types = {"before": ("PRECEDES", False), "after": ("PRECEDES", True),
-                                  "during": ("DURING", False), "contains": ("DURING", True),
-                                  "overlaps": ("OVERLAPS", False), "same_time": ("CONCURRENT", False)}
-                if order.choice in temporal_types:
-                    subtype, reverse = temporal_types[order.choice]
-                    add(LinkType.TEMPORAL, subtype, probability, reverse=reverse, origin=result.source)
-            add(LinkType.TEMPORAL, "SAME_EPISODE", values[prefix + "same_episode"], origin=result.source)
         return links
 
 

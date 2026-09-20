@@ -169,6 +169,7 @@ class MemoryBuilder:
             "sys1mem": {"admission_enabled": self.sys1_config.admission_enabled,
                         "admission": admission_data, "admission_score": score,
                         "memory_type": asdict(memory_type), "controller": "mock" if self.sys1_config.jev_mock else "jev"}})
+        node.attributes["temporal_references"] = self.temporal_parser.describe_references(interaction, timestamp)
         enriched = self.trg.keyword_enricher.enrich_content(interaction, metadata=node.attributes)
         embedding = np.asarray(self.trg.encoder.encode(enriched)).reshape(-1)
         node.embedding_vector = embedding.tolist()
@@ -176,13 +177,15 @@ class MemoryBuilder:
         relations = self.write_policy.relations(node, candidates)
         if relations is None:
             return self._build_magma(interaction, timestamp, metadata, fallback=True)
-        self._store_sys1_node(node, relations)
+        temporal_count = self._store_sys1_node(node, relations)
         self.index_event(node.node_id, interaction, node.attributes)
         self._sys1_writes += 1
+        relation_counts = Counter(link.link_type.value.lower() for link in relations)
+        relation_counts["temporal"] += temporal_count
         self.jev.audit.emit("memory_constructed", memory_id=node.node_id, admission=admission_data,
                             admission_enabled=self.sys1_config.admission_enabled,
                             memory_type=asdict(memory_type), admission_score=score,
-                            relations_created=dict(Counter(link.link_type.value.lower() for link in relations)))
+                            temporal_controller="magma", relations_created=dict(relation_counts))
         interval = self.sys1_config.consolidation_interval
         if interval and not self._consolidating and self._sys1_writes % interval == 0:
             self.consolidate(node.node_id)
@@ -202,12 +205,22 @@ class MemoryBuilder:
             self.trg.graph_db.add_node(node)
             for link in relations:
                 self.trg.graph_db.add_link(link)
+            # Reuse MAGMA's LoCoMo sequence/proximity rules incrementally.
+            # These neighbors are independent of Jev's bounded candidate set.
+            peers = [other.node_id for other in self.trg.graph_db.nodes.values()
+                     if other.node_type == NodeType.EVENT
+                     and (not node.attributes.get("dia_id") or
+                          (other.attributes.get("dia_id") and
+                           other.attributes.get("source") == node.attributes.get("source")))]
+            temporal_count = self.create_temporal_links(peers, latest_only=True)
+            temporal_count += self.create_temporal_proximity_links(peers, latest_only=True)
         except Exception:
             self.trg.graph_db.delete_node(node.node_id)
             self.trg.vector_db.delete_vector(node.node_id)
             raise
         self.trg.stats['events_added'] += 1
-        self.trg.stats['links_created'] += len(relations)
+        self.trg.stats['links_created'] += len(relations) + temporal_count
+        return temporal_count
 
     def _build_magma(self, interaction, timestamp, metadata, fallback=False):
         if fallback:
@@ -255,7 +268,7 @@ class MemoryBuilder:
                     self.trg.graph_db.add_link(Link(link_id=link_id, source_node_id=node.node_id,
                         target_node_id=other.node_id, link_type=LinkType.SEMANTIC,
                         properties={"sub_type": subtype, "probability": max(scores["link"], scores["redundant"], scores["contradiction"])},
-                        metadata={"controller": "sys1mem", "origin": result.source}))
+                        metadata={"controller": "jev-mem", "origin": result.source}))
                     self.trg.stats['links_created'] += 1
             if (summarizer and representation.choice in ("merge", "promote")
                     and representation.probabilities[representation.choice] >= threshold
@@ -719,11 +732,12 @@ class MemoryBuilder:
                 if keyword:
                     self._index_text_basic(event_id, keyword)
 
-    def create_temporal_links(self, nodes: List[str]) -> int:
-        """Create temporal links between nodes."""
+    def create_temporal_links(self, nodes: List[str], *, latest_only: bool = False) -> int:
+        """MAGMA sequence links; optionally append only the final observation."""
         created = 0
 
-        for i in range(len(nodes) - 1):
+        start = max(0, len(nodes) - 2) if latest_only else 0
+        for i in range(start, len(nodes) - 1):
             link = Link(
                 source_node_id=nodes[i],
                 target_node_id=nodes[i + 1],
@@ -945,17 +959,21 @@ class MemoryBuilder:
 
         return created
 
-    def create_temporal_proximity_links(self, nodes: List[str], max_time_diff_hours: int = 24) -> int:
-        """Create temporal proximity links with distance-based weights."""
+    def create_temporal_proximity_links(self, nodes: List[str], max_time_diff_hours: int = 24,
+                                        *, latest_only: bool = False) -> int:
+        """MAGMA proximity links; optionally add only edges to the final node."""
         created = 0
 
-        for i in range(len(nodes)):
+        start = max(0, len(nodes) - 10) if latest_only else 0
+        for i in range(start, len(nodes)):
             curr = self.trg.graph_db.get_node(nodes[i])
             if not curr or not hasattr(curr, 'timestamp') or not curr.timestamp:
                 continue
 
             # Look ahead up to 10 nodes
             for j in range(i + 1, min(i + 10, len(nodes))):
+                if latest_only and j != len(nodes) - 1:
+                    continue
                 next_node = self.trg.graph_db.get_node(nodes[j])
                 if not next_node or not hasattr(next_node, 'timestamp') or not next_node.timestamp:
                     continue

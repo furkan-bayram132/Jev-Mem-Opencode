@@ -25,6 +25,8 @@ class RetrievalController:
         cfg, trg = self.config, self.engine.trg
         budget = CallBudget(cfg.maximum_jev_calls, started + cfg.max_latency_seconds)
         prompts = routing_questions()
+        from .temporal_parser import TemporalParser
+        temporal_query = TemporalParser().is_temporal_question(question)
         intent = self.engine.detect_query_intent(question)
         baseline = dict(semantic=0.7, temporal=0.8 if intent == "WHEN" else 0.2,
                         causal=0.8 if intent == "WHY" else 0.2, entity=0.6,
@@ -59,7 +61,8 @@ class RetrievalController:
                 vectors = trg.vector_db.search(query_vector, k=min(cfg.maximum_nodes, max(top_k, cfg.anchor_count)))
                 vector_nodes = [trg.graph_db.get_node(node_id) for node_id, _, _ in vectors]
                 ranked.append([n for n in vector_nodes if n is not None and n.node_type == NodeType.EVENT])
-                ranked.append(self.engine._keyword_search(question, limit=cfg.maximum_nodes))
+                keyword_search = self.engine._temporal_keyword_search if temporal_query else self.engine._keyword_search
+                ranked.append(keyword_search(question, limit=cfg.maximum_nodes))
                 anchors = self.engine._rrf_fusion(ranked)
                 for node, _ in anchors:
                     if node.node_type != NodeType.EVENT:
@@ -79,7 +82,7 @@ class RetrievalController:
             if cfg.stopping_enabled:
                 prompts = stopping_questions()
                 decision = self.client.evaluate("stopping", {"query": question,
-                    "evidence": [node_state(nodes[key]) for key in selected], "depth": depth}, prompts,
+                    "evidence": [node_state(nodes[key], include_temporal=temporal_query) for key in selected], "depth": depth}, prompts,
                     mock_values=dict(evidence_sufficient=0.9 if depth else 0.3, continue_useful=0.2 if depth else 0.8,
                                      missing_evidence=0.1 if depth else 0.7, contradiction=0.0), budget=budget)
                 if decision:
@@ -140,8 +143,8 @@ class RetrievalController:
                     questions[prefix + field] = prompt
                     defaults[prefix + field] = cosine(query_vector, node.embedding_vector) if field == "relevance" else 0.5
             result = self.client.evaluate("traversal", {"query": question,
-                "evidence": [node_state(nodes[key]) for key in selected],
-                "candidates": [{**node_state(n), "relation": link.to_dict()["properties"],
+                "evidence": [node_state(nodes[key], include_temporal=temporal_query) for key in selected],
+                "candidates": [{**node_state(n, include_temporal=temporal_query), "relation": link.to_dict()["properties"],
                                 "graph": graph, "source_id": link.source_node_id, "target_id": link.target_node_id}
                                for n, link, _, graph, _ in items]}, questions, mock_values=defaults, budget=budget)
             if budget.remaining_seconds() <= 0:
@@ -178,7 +181,7 @@ class RetrievalController:
             stop_reason = "max_latency"
         selected = sorted(nodes, key=lambda key: (-scores[key], key))[:top_k]
         chosen = [nodes[key] for key in selected]
-        metadata = {"controller": "sys1mem", "query_id": hashlib.sha256(question.encode()).hexdigest()[:16],
+        metadata = {"controller": "jev-mem", "query_id": hashlib.sha256(question.encode()).hexdigest()[:16],
                     "graph_needs": asdict(needs), "graph_budgets": allocations,
                     "graph_budget_used": used, "nodes_visited": len(nodes), "edges_examined": edges_examined,
                     "jev_calls": budget.calls, "jev_cache_hits": budget.cache_hits, "llm_calls": 0,
@@ -186,6 +189,8 @@ class RetrievalController:
                     "stopping_decision": stop_reason, "stopping_scores": stopping,
                     "fallback_events": budget.fallback_events, "top_k_returned": len(chosen)}
         metadata["retrieved_dia_ids"] = [n.attributes.get("dia_id") for n in chosen if n.attributes.get("dia_id")]
+        if temporal_query:
+            metadata["temporal_evidence_policy"] = "anchored-dialogue-v1"
         answer_context = self.engine.answer_formatter.format_context_for_qa(chosen, question)
         context = QueryContext(question, chosen, [paths[key] for key in selected], answer_context, metadata)
         self.client.audit.emit("query", **metadata)

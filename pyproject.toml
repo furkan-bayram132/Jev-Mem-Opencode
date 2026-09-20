@@ -10,7 +10,7 @@ readme = "README.md"
 requires-python = ">=3.11"
 license = "MIT"
 license-files = ["LICENSE", "NOTICE"]
-keywords = ["agent-memory", "knowledge-graph", "retrieval", "jev", "locomo"]
+keywords = ["agent-memory", "knowledge-graph", "retrieval", "jev", "locomo", "longmemeval"]
 classifiers = [
   "Development Status :: 3 - Alpha",
   "Intended Audience :: Science/Research",
@@ -24,9 +24,10 @@ dynamic = ["dependencies"]
 jev-mem = "main:main"
 jev-mem-demo = "jev_mem_demo:main"
 jev-mem-eval = "test_fixed_memory:main"
+jev-mem-longmemeval = "test_longmemeval_chunked:main"
 
 [tool.setuptools]
-py-modules = ["main", "jev_mem_demo", "sys1mem_demo", "test_fixed_memory", "test_longmemeval_chunked", "load_dataset", "load_longmemeval"]
+py-modules = ["main", "jev_mem_demo", "test_fixed_memory", "test_longmemeval_chunked", "load_dataset", "load_longmemeval"]
 include-package-data = false
 
 [tool.setuptools.packages.find]
