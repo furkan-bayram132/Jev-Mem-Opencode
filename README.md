@@ -11,9 +11,6 @@ A separate language model generates the final answer from retrieved evidence.
 
 ![Jev-Mem write and retrieval workflows](overall_structure.png)
 
-[Algorithm design](docs/algorithm.md) · [Implementation](docs/implementation.md) ·
-[Evaluation](docs/evaluation.md) · [Contributing](CONTRIBUTING.md)
-
 ## What it does
 
 - **Preserves observations:** admission filtering is off by default. Writes retain
