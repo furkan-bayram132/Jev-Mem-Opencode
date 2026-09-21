@@ -2,10 +2,11 @@
 
 **Better memory for long-running AI agents—with fast decisions and focused reasoning.**
 
-Jev-Mem is an agentic memory system that uses a **System-One controller** to
-organize and retrieve multi-relational memories, with a **System-Two language
-model** for answer synthesis. TypeSafe Jev supplies the controller's typed
-decisions across semantic, temporal, causal, and entity relations.
+Jev-Mem separates the frequent decisions of memory management from the deeper
+reasoning needed to answer a question. A lightweight **System-One controller**
+organizes memories and guides retrieval across semantic, temporal, causal, and
+entity relations. A **System-Two language model** synthesizes the answer from
+the evidence it finds.
 
 On LoCoMo with **GPT-4o-mini**, the paper reports **11.0% higher overall answer
 quality**, **6.6× faster memory construction**, and **36.7% lower query latency**
@@ -16,9 +17,9 @@ for the comparisons.
 [Quick start](#quick-start) · [Run experiments](#run-experiments) ·
 [Contribute](#contributing) · [Citation](#citation)
 
-![Jev-Mem architecture: System-One control guides writing and retrieval over shared multi-relational memory, with System Two synthesizing the answer.](docs/figures/overview.png)
+![Jev-Mem architecture: System-One control guides writing and retrieval over shared multi-relational memory, with System Two synthesizing the answer.](docs/figures/overall_structure.png)
 
-## Why Jev-Mem?
+##  Why Jev-Mem?
 
 Persistent agents need to remember preferences, connect events across sessions,
 and recover the right evidence as their histories grow. Each new memory and
