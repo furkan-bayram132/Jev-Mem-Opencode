@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "jev-mem"
 version = "0.1.0"
-description = "Typed probabilistic control for multi-graph conversational memory"
+description = "System-One Controlled Agentic Memory"
 readme = "README.md"
 requires-python = ">=3.11"
 license = "MIT"
@@ -21,18 +21,18 @@ classifiers = [
 dynamic = ["dependencies"]
 
 [project.scripts]
-jev-mem = "main:main"
-jev-mem-demo = "jev_mem_demo:main"
-jev-mem-eval = "test_fixed_memory:main"
-jev-mem-longmemeval = "test_longmemeval_chunked:main"
+jev-mem = "jev_mem.cli:main"
+jev-mem-demo = "jev_mem.demo:main"
+jev-mem-eval = "jev_mem.benchmarks.locomo:main"
+jev-mem-longmemeval = "jev_mem.benchmarks.longmemeval:main"
 
 [tool.setuptools]
 py-modules = ["main", "jev_mem_demo", "test_fixed_memory", "test_longmemeval_chunked", "load_dataset", "load_longmemeval"]
 include-package-data = false
 
 [tool.setuptools.packages.find]
-include = ["memory", "utils"]
-namespaces = true
+include = ["jev_mem", "jev_mem.*", "memory", "utils"]
+namespaces = false
 
 [tool.setuptools.dynamic]
 dependencies = {file = ["requirements.txt"]}

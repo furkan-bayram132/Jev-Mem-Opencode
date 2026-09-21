@@ -1,5 +1,5 @@
 """
-Episode Segmentation Module for TRG Memory System
+Episode Segmentation Module for Jev-Mem
 
 Groups related conversation turns into semantic episodes using LLM-based boundary detection.
 Based on Nemori's episode segmentation approach with semantic boundaries.

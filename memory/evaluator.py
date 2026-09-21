@@ -13,9 +13,6 @@ Key Features:
 
 import logging
 from typing import Dict, Optional, List
-import sys
-import os
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from utils.utils import calculate_metrics
 from .llm_judge import LLMJudge
 

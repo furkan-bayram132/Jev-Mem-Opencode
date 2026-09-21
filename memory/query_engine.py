@@ -22,12 +22,12 @@ logger = logging.getLogger(__name__)
 
 class QueryEngine:
     """
-    Advanced query engine for TRG memory system.
+    Advanced query engine for Jev-Mem.
 
     Provides multi-stage retrieval with graph traversal.
     """
 
-    def __init__(self, trg_memory, node_index: dict, entity_session_map: dict = None, entity_dia_map: dict = None, llm_controller=None, ablation_config=None, sys1_config=None, jev_client=None, *, jev_config=None):
+    def __init__(self, trg_memory, node_index: dict, entity_session_map: dict = None, entity_dia_map: dict = None, llm_controller=None, ablation_config=None, jev_config=None, jev_client=None):
         """
         Initialize query engine.
 
@@ -53,10 +53,8 @@ class QueryEngine:
         self.ablation_config = ablation_config or {}
         from .jev_mem_config import JevMemConfig
         from .jev_client import JevClient
-        if jev_config is not None and sys1_config is not None:
-            raise ValueError("Pass only jev_config or the legacy sys1_config argument")
-        self.jev_config = self.sys1_config = jev_config or sys1_config or JevMemConfig()
-        self.jev = jev_client or JevClient(self.sys1_config)
+        self.jev_config = jev_config or JevMemConfig()
+        self.jev = jev_client or JevClient(self.jev_config)
 
     def _rrf_fusion(self, ranked_lists: List[List], k: int = 60) -> List[Tuple]:
         """
@@ -703,9 +701,9 @@ class QueryEngine:
         Returns:
             Tuple of (QueryContext, answer_context_string)
         """
-        if self.sys1_config.read_enabled:
+        if self.jev_config.read_enabled:
             from .jev_mem_retrieval import RetrievalController
-            return RetrievalController(self, self.jev, self.sys1_config).query(question, top_k)
+            return RetrievalController(self, self.jev, self.jev_config).query(question, top_k)
         query_type = self.detect_query_type(question)
 
         if self.ablation_config.get('flat_graph'):

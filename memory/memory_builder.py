@@ -25,7 +25,7 @@ logger = logging.getLogger(__name__)
 
 class MemoryBuilder:
     """
-    Builds and manages TRG memory from conversational data.
+    Builds and manages Jev-Mem conversational memory.
 
     Supports both turn-based and episode-based memory construction.
     """
@@ -36,11 +36,10 @@ class MemoryBuilder:
         llm_model: str = "gpt-4o-mini",
         use_episodes: bool = False,
         embedding_model: str = "minilm",
-        sys1_config=None,
+        jev_config=None,
         jev_client=None,
         trg_memory=None,
         llm_enabled: bool = True,
-        *, jev_config=None
     ):
         """
         Initialize memory builder.
@@ -51,8 +50,6 @@ class MemoryBuilder:
             use_episodes: Whether to use episode-based segmentation
         """
         import os
-        import sys
-        sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
         from utils.memory_layer import LLMController
         from .answer_formatter import AnswerFormatter
 
@@ -64,14 +61,12 @@ class MemoryBuilder:
         from .jev_mem_config import JevMemConfig
         from .jev_client import JevClient
         from .jev_mem_policies import WritePolicy
-        if jev_config is not None and sys1_config is not None:
-            raise ValueError("Pass only jev_config or the legacy sys1_config argument")
-        self.jev_config = self.sys1_config = jev_config or sys1_config or JevMemConfig()
-        self.jev = jev_client or JevClient(self.sys1_config)
-        self.write_policy = WritePolicy(self.jev, self.sys1_config)
-        self._sys1_writes = 0
+        self.jev_config = jev_config or JevMemConfig()
+        self.jev = jev_client or JevClient(self.jev_config)
+        self.write_policy = WritePolicy(self.jev, self.jev_config)
+        self._jev_writes = 0
         self._consolidating = False
-        if use_episodes and self.sys1_config.write_enabled:
+        if use_episodes and self.jev_config.write_enabled:
             raise ValueError("Jev-Mem writes use one canonical node per observation; disable --use-episodes")
 
         self.trg = trg_memory if trg_memory is not None else TemporalResonanceGraphMemory(
@@ -136,23 +131,23 @@ class MemoryBuilder:
         if not isinstance(interaction, str) or not interaction.strip():
             raise ValueError("interaction must be non-empty text")
         metadata = dict(metadata or {})
-        if not self.sys1_config.write_enabled:
+        if not self.jev_config.write_enabled:
             return self._build_magma(interaction, timestamp, metadata)
         admission_data = score = None
-        if self.sys1_config.admission_enabled:
+        if self.jev_config.admission_enabled:
             duplicate = any(n.attributes.get("raw_content") == interaction for n in self.trg.graph_db.nodes.values())
             from itertools import islice
             from .jev_mem_policies import node_state
             recent = [node_state(self.trg.graph_db.get_node(key)) for key in
-                      islice(reversed(self.trg.graph_db.nodes), self.sys1_config.candidate_top_k)
+                      islice(reversed(self.trg.graph_db.nodes), self.jev_config.candidate_top_k)
                       if self.trg.graph_db.get_node(key).node_type == NodeType.EVENT]
             assessment = self.write_policy.assess_observation(interaction, duplicate, recent)
             if assessment is None:
                 return self._build_magma(interaction, timestamp, metadata, fallback=True)
             admission, memory_type = assessment
             admission_data = asdict(admission)
-            score = admission.score(self.sys1_config.admission_weights)
-            if score < self.sys1_config.admission_threshold:
+            score = admission.score(self.jev_config.admission_weights)
+            if score < self.jev_config.admission_threshold:
                 self.jev.audit.emit("memory_rejected", admission=admission_data, admission_score=score)
                 return None
         else:
@@ -166,32 +161,32 @@ class MemoryBuilder:
         node = EventNode(timestamp=timestamp, content_narrative=interaction, attributes={
             **metadata, "raw_content": interaction, "original_text": metadata.get("original_text", interaction),
             "entities": sorted(set(entities)), "keywords": keywords,
-            "sys1mem": {"admission_enabled": self.sys1_config.admission_enabled,
+            "jev_mem": {"admission_enabled": self.jev_config.admission_enabled,
                         "admission": admission_data, "admission_score": score,
-                        "memory_type": asdict(memory_type), "controller": "mock" if self.sys1_config.jev_mock else "jev"}})
+                        "memory_type": asdict(memory_type), "controller": "mock" if self.jev_config.jev_mock else "jev"}})
         node.attributes["temporal_references"] = self.temporal_parser.describe_references(interaction, timestamp)
         enriched = self.trg.keyword_enricher.enrich_content(interaction, metadata=node.attributes)
         embedding = np.asarray(self.trg.encoder.encode(enriched)).reshape(-1)
         node.embedding_vector = embedding.tolist()
-        candidates = find_candidates(self.trg, node, self.sys1_config.candidate_top_k)
+        candidates = find_candidates(self.trg, node, self.jev_config.candidate_top_k)
         relations = self.write_policy.relations(node, candidates)
         if relations is None:
             return self._build_magma(interaction, timestamp, metadata, fallback=True)
-        temporal_count = self._store_sys1_node(node, relations)
+        temporal_count = self._store_jev_node(node, relations)
         self.index_event(node.node_id, interaction, node.attributes)
-        self._sys1_writes += 1
+        self._jev_writes += 1
         relation_counts = Counter(link.link_type.value.lower() for link in relations)
         relation_counts["temporal"] += temporal_count
         self.jev.audit.emit("memory_constructed", memory_id=node.node_id, admission=admission_data,
-                            admission_enabled=self.sys1_config.admission_enabled,
+                            admission_enabled=self.jev_config.admission_enabled,
                             memory_type=asdict(memory_type), admission_score=score,
                             temporal_controller="magma", relations_created=dict(relation_counts))
-        interval = self.sys1_config.consolidation_interval
-        if interval and not self._consolidating and self._sys1_writes % interval == 0:
+        interval = self.jev_config.consolidation_interval
+        if interval and not self._consolidating and self._jev_writes % interval == 0:
             self.consolidate(node.node_id)
         return node
 
-    def _store_sys1_node(self, node, relations):
+    def _store_jev_node(self, node, relations):
         """Commit a single node and its views; undo partial insertion on failure."""
         import numpy as np
         for link in relations:
@@ -224,7 +219,7 @@ class MemoryBuilder:
 
     def _build_magma(self, interaction, timestamp, metadata, fallback=False):
         if fallback:
-            metadata["sys1mem"] = {"controller": "magma_fallback"}
+            metadata["jev_mem"] = {"controller": "magma_fallback"}
             self.jev.audit.emit("write_fallback", controller="magma")
         node_id = self.trg.add_event(interaction, timestamp=timestamp, metadata=metadata)
         self.index_event(node_id, interaction, metadata)
@@ -241,7 +236,7 @@ class MemoryBuilder:
         node = self.trg.graph_db.get_node(memory_id)
         if node is None:
             raise ValueError("Unknown memory_id")
-        candidates = find_candidates(self.trg, node, self.sys1_config.candidate_top_k)
+        candidates = find_candidates(self.trg, node, self.jev_config.candidate_top_k)
         if not candidates:
             return []
         from typesafe_sdk import Choice
@@ -259,7 +254,7 @@ class MemoryBuilder:
             scores = {name: result.values[f"pair_{i}_{name}"] for name in ("redundant", "contradiction", "obsolete", "link")}
             representation = result.choices[f"pair_{i}_representation"]
             decisions.append({"candidate_id": other.node_id, **scores, "representation": representation.model_dump()})
-            threshold = self.sys1_config.consolidation_threshold
+            threshold = self.jev_config.consolidation_threshold
             subtype = "CONTRADICTS" if scores["contradiction"] >= threshold else (
                 "REDUNDANT_WITH" if scores["redundant"] >= threshold else "RELATED_TO")
             if max(scores["link"], scores["redundant"], scores["contradiction"]) >= threshold:
@@ -282,7 +277,7 @@ class MemoryBuilder:
                     # Reuse admission and typing for the new representation, suppress periodic recursion.
                     self._consolidating = True
                     try:
-                        summary = self.build(text, metadata={"source": "sys1mem_consolidation",
+                        summary = self.build(text, metadata={"source": "jev_mem_consolidation",
                             "parent_interaction_id": node.node_id, "consolidation_key": summary_key,
                             "source_memory_ids": [node.node_id, other.node_id],
                             "consolidation_action": representation.choice})
@@ -290,7 +285,7 @@ class MemoryBuilder:
                         self._consolidating = False
                     self.jev.audit.emit("consolidation_summary", memory_id=summary.node_id if summary else None, llm_calls=1)
         attrs = dict(node.attributes)
-        attrs["sys1mem"] = {**attrs.get("sys1mem", {}), "consolidation": decisions}
+        attrs["jev_mem"] = {**attrs.get("jev_mem", {}), "consolidation": decisions}
         self.trg.graph_db.update_node(node.node_id, {"attributes": attrs})
         self.jev.audit.emit("consolidation", memory_id=node.node_id, decisions=decisions)
         return decisions
@@ -1147,7 +1142,7 @@ class MemoryBuilder:
 
     def build_memory(self, sample) -> Dict:
         """
-        Build TRG memory from a LoCoMo sample.
+        Build Jev-Mem memory from a LoCoMo sample.
 
         Args:
             sample: LoCoMoSample object
@@ -1155,7 +1150,7 @@ class MemoryBuilder:
         Returns:
             Statistics about the built memory
         """
-        if self.sys1_config.write_enabled:
+        if self.jev_config.write_enabled:
             created = rejected = 0
             for session_id in sorted(sample.conversation.sessions):
                 session = sample.conversation.sessions[session_id]
@@ -1314,9 +1309,9 @@ class MemoryBuilder:
             index_data = {k: list(v) for k, v in self.node_index.items()}
             json.dump(index_data, f, indent=2)
 
-        if self.sys1_config.write_enabled or self.sys1_config.read_enabled:
+        if self.jev_config.write_enabled or self.jev_config.read_enabled:
             with (self.cache_dir / "jev_mem_config.json").open('w') as f:
-                json.dump(self.sys1_config.to_dict(), f, indent=2)
+                json.dump(self.jev_config.to_dict(), f, indent=2)
 
         # Save episode information if using episodes
         if self.use_episodes:
@@ -1357,7 +1352,7 @@ class MemoryBuilder:
 
         self.trg.stats['events_added'] = sum(n.node_type == NodeType.EVENT for n in self.trg.graph_db.nodes.values())
         self.trg.stats['links_created'] = len(self.trg.graph_db.links)
-        self._sys1_writes = sum('admission' in n.attributes.get('sys1mem', {}) for n in self.trg.graph_db.nodes.values())
+        self._jev_writes = sum('admission' in n.attributes.get('jev_mem', {}) for n in self.trg.graph_db.nodes.values())
 
         logger.info(f"Memory loaded from {source_dir}")
         logger.info(f"Episodes mode: {self.use_episodes}, Episode nodes: {len(self.episode_nodes)}")

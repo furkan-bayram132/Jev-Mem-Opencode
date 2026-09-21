@@ -1,5 +1,5 @@
 """
-Jev-Mem memory system
+Memory components for Jev-Mem: System-One Controlled Agentic Memory.
 
 This module provides the Temporal Resonance Graph Memory implementation.
 """
@@ -16,7 +16,7 @@ _MODULES = {
     "temporal_parser": "TemporalParser", "answer_formatter": "AnswerFormatter",
     "llm_judge": "LLMJudge", "memory_builder": "MemoryBuilder", "query_engine": "QueryEngine",
     "test_harness": "TestHarness", "evaluator": "Evaluator",
-    "jev_mem_config": "JevMemConfig", "sys1_config": "Sys1MemConfig", "jev_client": "JevClient",
+    "jev_mem_config": "JevMemConfig", "jev_client": "JevClient",
 }
 
 
@@ -65,7 +65,6 @@ __all__ = [
     'TestHarness',
     'Evaluator',
     'JevMemConfig',
-    'Sys1MemConfig',
     'JevClient'
 ]
 

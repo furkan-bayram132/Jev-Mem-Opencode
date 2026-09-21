@@ -208,7 +208,7 @@ class CachedBestOfNSelector(BestOfNSelector):
     def _get_cache_key(self, question: str, expected: str = None) -> str:
         """Generate deterministic cache key."""
         key_str = f"{question}|{expected or ''}"
-        return hashlib.md5(key_str.encode()).hexdigest()
+        return hashlib.md5(key_str.encode(), usedforsecurity=False).hexdigest()
 
     def clear_cache(self):
         """Clear the cache."""

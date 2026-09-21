@@ -1,254 +1,311 @@
-# Jev-Mem
+# Jev-Mem: System-One Controlled Agentic Memory
 
-**Typed probabilistic control for multi-graph conversational memory.**
+**Better memory for long-running AI agents—with fast decisions and focused reasoning.**
 
-Jev-Mem uses [TypeSafe Jev](https://docs.typesafe.ai/) to guide how an agent
-constructs and searches memory. Jev returns typed decisions through **Noul**
-(binary propositions) and **Choice** (categorical decisions). Ordinary code
-validates those decisions, maintains the graph, and enforces retrieval budgets.
-A separate language model generates the final answer from retrieved evidence.
+Jev-Mem is an agentic memory system that uses a **System-One controller** to
+organize and retrieve multi-relational memories, with a **System-Two language
+model** for answer synthesis. TypeSafe Jev supplies the controller's typed
+decisions across semantic, temporal, causal, and entity relations.
 
-This research prototype extends [MAGMA](https://github.com/FredJiang0324/MAGMA).
-It retains the MAGMA baseline and supports LoCoMo and LongMemEval experiments. It does not yet
-establish benchmark superiority or calibrated probabilities.
+On LoCoMo with **GPT-4o-mini**, the paper reports **11.0% higher overall answer
+quality**, **6.6× faster memory construction**, and **36.7% lower query latency**
+than the strongest or fastest baseline for each metric. See [results](#results-on-locomo)
+for the comparisons.
 
-![Jev-Mem write and retrieval workflows](docs/figures/jev_mem_overview.svg)
+[Results](#results-on-locomo) · [How it works](#how-it-works) ·
+[Quick start](#quick-start) · [Run experiments](#run-experiments) ·
+[Contribute](#contributing) · [Citation](#citation)
 
-[Algorithm design](docs/algorithm.md) · [Implementation](docs/implementation.md) ·
-[Evaluation](docs/evaluation.md) · [Contributing](CONTRIBUTING.md)
+![Jev-Mem architecture: System-One control guides writing and retrieval over shared multi-relational memory, with System Two synthesizing the answer.](docs/figures/overview.png)
 
-## What it does
+## Why Jev-Mem?
 
-- **Preserves observations:** admission filtering is off by default. Writes retain
-  original text and provenance, attach overlapping memory-type scores, and add
-  semantic, temporal, causal, and entity relations. Temporal writes use MAGMA's
-  sequence and timestamp-proximity rules; other inferred relations use Jev.
-- **Retrieves with bounded work:** vector and keyword anchors seed graph traversal;
-  Jev guides graph budgets, candidate ranking, and evidence-based stopping.
-- **Keeps temporal evidence grounded:** relative dates use each statement's own
-  conversation date; week/month/year precision is preserved. Retrieved adjacent
-  turns stay together so date-bearing replies retain their question or event context.
-- **Makes decisions inspectable:** traces record decisions, budgets, cache hits,
-  stopping reasons, and fallback events. API failures have explicit fallback behavior.
-- **Supports controlled experiments:** separate write/read ablations, validated
-  configuration files, cache reuse, and an offline mock demo.
+Persistent agents need to remember preferences, connect events across sessions,
+and recover the right evidence as their histories grow. Each new memory and
+each retrieval step introduces decisions: how information connects, where to
+search, and when enough evidence has been found. Jev-Mem gives these decisions
+a dedicated, structured controller.
+
+- **Preserve the evidence.** Keep original observations, timestamps, and provenance.
+  The default profile retains every valid observation, so a detail can become
+  useful later even if its importance was unclear when it arrived.
+- **Connect memories in four ways.** Shared memory nodes participate in semantic,
+  temporal, causal, and entity graph views, supporting questions about what
+  happened, when, why, and to whom.
+- **Adapt retrieval to the question.** Route queries across relevant graph views,
+  allocate search budgets, score candidates, and reassess whether more evidence
+  is needed after each round.
+- **Inspect the decisions.** Typed outputs, explicit traversal limits, and traces
+  expose routing, budgets, stopping reasons, cache hits, and fallback events.
+
+
+## Results on LoCoMo
+
+Results below are reported in **Tables 1–2 of the current paper,
+*Jev-Mem: System-One Controlled Agentic Memory***, using GPT-4o-mini as the answer
+model. Answer quality is measured by LLM-as-a-Judge; query latency includes
+retrieval and answer generation.
+
+| Method | Overall score ↑ | Memory build time (s) ↓ | Average query latency (s) ↓ |
+| --- | ---: | ---: | ---: |
+| Full Context | 0.481 | N/A | 1.74 |
+| A-MEM | 0.580 | 3,636 | 2.26 |
+| MemoryOS | 0.553 | 3,276 | 32.68 |
+| Nemori | 0.590 | 1,044 | 2.59 |
+| MAGMA | 0.700 | 1,404 | 1.47 |
+| **Jev-Mem** | **0.777** | **158** | **0.93** |
+
+- **Higher answer quality:** 0.777 versus MAGMA's 0.700—a **0.077 absolute gain**
+  and **11.0% relative improvement**.
+- **Faster construction:** 158 s versus Nemori's 1,044 s—a **6.6× speedup** over
+  the fastest competing memory system.
+- **Lower query latency:** 0.93 s versus MAGMA's 1.47 s—a **36.7% reduction**
+  versus the fastest memory baseline.
+
+<details>
+<summary><strong>Answer quality by question category</strong></summary>
+
+| Method | Multi-Hop | Temporal | Open-Domain | Single-Hop | Adversarial |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Full Context | 0.468 | 0.562 | 0.486 | 0.630 | 0.205 |
+| A-MEM | 0.495 | 0.474 | 0.385 | 0.653 | 0.616 |
+| MemoryOS | 0.552 | 0.422 | 0.504 | 0.674 | 0.428 |
+| Nemori | 0.569 | 0.649 | 0.485 | 0.764 | 0.325 |
+| MAGMA | 0.528 | **0.650** | 0.517 | 0.776 | 0.742 |
+| **Jev-Mem** | **0.623** | 0.637 | **0.618** | **0.802** | **0.962** |
+
+Jev-Mem leads in four of the five question categories and in the overall score.
+MAGMA has the highest temporal score.
+
+</details>
+
+These are the paper's reported measurements. The commands below are
+starting points for running the implementation; their subsets and scoring
+settings do not reproduce the full paper evaluation by themselves.
+
+## How it works
+
+Jev-Mem combines three components:
+
+| Component | Responsibility |
+| --- | --- |
+| **System One: memory control** | Memory typing, relation judgments, query routing, budget allocation, candidate scoring, and evidence assessment |
+| **Shared memory** | Canonical observations, four relational graph views, and vector and keyword indexes |
+| **System Two: reasoning** | Final answer synthesis from selected evidence |
+
+**Write → connect.** Each observation retains its text and provenance and receives
+overlapping episodic, semantic, procedural, and preference scores. Candidate
+search identifies a bounded set of existing memories; Jev judges inferred
+relations, while code handles deterministic links such as timestamp ordering.
+
+**Retrieve → assess → expand.** Vector and keyword search supply initial anchors.
+The controller selects useful graph views, allocates traversal effort, and scores
+new candidates. It stops when the evidence is sufficient, further search has
+little expected value, or a configured limit is reached. Selected evidence then
+goes to the answer model.
+
+Jev exposes decisions through **Noul** (binary propositions) and **Choice**
+(categorical decisions). Ordinary code validates the outputs and enforces the
+graph and retrieval limits. Explore the [decision questions](memory/jev_questions.py),
+[write policies](memory/jev_mem_policies.py), and
+[retrieval controller](memory/jev_mem_retrieval.py).
 
 ## Quick start
 
-Python **3.11+** is required; 3.11 is the recommended starting point. Run these
-commands from the repository root after cloning or extracting the source:
+Requires **Python 3.11+**. From the repository root:
 
 ```bash
 python3.11 -m venv .venv
 source .venv/bin/activate
 python -m pip install -r requirements.txt
-python jev_mem_demo.py
+python -m jev_mem.demo
 ```
 
-The demo needs **no API keys or model downloads**. It uses deterministic mock
-Jev decisions and embeddings, saves a small graph under `jev_mem_cache/demo`,
-and prints retrieved evidence and its trace. It demonstrates execution, not
-answer quality. Dependencies must already be installed to run offline.
+The demo uses **no API keys or model downloads**. It stores a few synthetic
+observations, retrieves evidence, and prints the decision trace. It uses
+deterministic mock decisions and embeddings to demonstrate the pipeline;
+it does not measure answer quality. After dependencies are installed, it runs
+offline. On Windows, activate with `.venv\Scripts\Activate.ps1`.
 
-For development, install `requirements-dev.txt` and run `python -m pytest -q`.
-Alternatively, `bash setup.sh` creates the environment and installs development
-dependencies. Windows users can activate with `.venv\Scripts\Activate.ps1`.
+### Use live models
 
-## Configure live providers
-
-```bash
-cp .env.example .env
-```
-
-Fill in your **local** `.env`:
+Create a local `.env` file in the repository root with your provider keys:
 
 ```dotenv
-TYPESAFE_API_KEY=
-TYPESAFE_DEFAULT_MODEL=jev-latest
-OPENAI_API_KEY=
+TYPESAFE_API_KEY=your-typesafe-key
+OPENAI_API_KEY=your-openai-key
 ```
 
-`TYPESAFE_API_KEY` authenticates Jev decisions. `OPENAI_API_KEY` authenticates
-answer generation and evaluation. Paste raw keys without a `Bearer` prefix.
-The CLI loads `.env`; existing environment variables take precedence.
+Jev controls memory decisions; the OpenAI-compatible model generates answers
+and supports evaluation. The CLI loads `.env`, with existing environment
+variables taking precedence. The supplied profile uses `jev-latest`; choose the
+answer model with `--model`. The default `minilm` embedding backend downloads
+its model on first use.
 
-For Azure OpenAI v1, use your Azure resource key as `OPENAI_API_KEY` and set:
+Build and query the included [synthetic observations](examples/observations.json):
+
+```bash
+python -m jev_mem --mode build --input examples/observations.json \
+  --jev-config config/jev_mem.json --cache-dir ./jev_mem_cache/app
+
+python -m jev_mem --mode query --question "What reminder does Mira prefer?" \
+  --jev-config config/jev_mem.json --cache-dir ./jev_mem_cache/app
+```
+
+For your own data, supply a JSON list of strings or objects with `content`,
+an optional ISO 8601 `timestamp`, and optional `metadata`.
+
+<details>
+<summary><strong>Azure OpenAI</strong></summary>
+
+Use the Azure resource key as `OPENAI_API_KEY` and set the v1 endpoint:
 
 ```dotenv
 OPENAI_BASE_URL=https://YOUR-RESOURCE.services.ai.azure.com/openai/v1/
 ```
 
-Pass your chat deployment name with `--model`. The default `minilm` embedding
-backend downloads a sentence-transformer model on first use. To use the OpenAI
-embedding backend, see the deployment variables in [.env.example](.env.example).
-Optionally set `HF_TOKEN` in `.env` to authenticate Hugging Face downloads.
-An unauthenticated-download warning alone does not mean a run has failed.
+Pass your chat deployment name with `--model`.
 
-Live runs send text to the configured providers and can incur charges. `.env`,
-datasets, memory caches, and results are excluded from public distribution.
-Read [SECURITY.md](SECURITY.md) before using private conversations.
+</details>
 
-## Run LoCoMo
+Live runs send text to the configured providers and may incur charges. Keep
+keys, conversations, and generated caches local; see [SECURITY.md](SECURITY.md)
+for handling private data.
 
-Obtain the dataset from the [official LoCoMo repository](https://github.com/snap-research/locomo)
-and save it as `data/locomo10.json`; see [data setup](data/README.md).
-The repository includes only original [synthetic examples](examples/README.md).
+## Run experiments
 
-Start with ten questions from sample 0:
+Download datasets from their original distributors using the [data setup guide](data/README.md).
+The repository includes [synthetic examples](examples/README.md) for exploring
+the input formats.
+
+### LoCoMo
+
+Place the dataset at `data/locomo10.json`, then try ten questions from sample 0:
 
 ```bash
-python test_fixed_memory.py \
+python -m jev_mem.benchmarks.locomo \
   --dataset data/locomo10.json \
   --jev-config config/jev_mem.json \
   --sample 0 --model gpt-4o-mini \
   --max-questions 10 --category-to-test 1,2,3,4 --best-of-n 1
 ```
 
-Run samples **2 through 5** in one invocation:
+Samples are zero-based. `--max-questions` caps evaluated questions per sample
+after category filtering; all conversation history is still ingested. Pass
+multiple samples with, for example, `--sample 2 3 4 5`.
+
+Use `--best-of-n 1` for single-answer evaluation: the inherited default of 3
+uses reference-aware selection that can bias accuracy. This example excludes
+adversarial category 5, which requires separate analysis and is included in
+the paper's results table. `--jev-mock` replaces only Jev; benchmark answer
+generation and judging still use live models.
+
+### LongMemEval
+
+The repository also includes a LongMemEval runner. The current paper
+reports LoCoMo results; no LongMemEval result is claimed here.
 
 ```bash
-python test_fixed_memory.py \
-  --jev-config config/jev_mem.json \
-  --sample 2 3 4 5 --model gpt-4o-mini \
-  --max-questions 10000 --category-to-test 1,2,3,4 --best-of-n 1
-```
-
-Samples are zero-based positions. `--max-questions` caps questions **per sample**
-after category filtering; it does not limit conversation ingestion. A large cap
-runs all eligible questions. Samples run sequentially, with parallel questions
-inside each sample; add `--no-parallel` for sequential questions.
-
-Use `--best-of-n 1` for single-answer evaluation. The inherited default is 3,
-and reference-aware selection can bias reported accuracy. Category 5 requires
-separate adversarial analysis. See [evaluation guidance](docs/evaluation.md).
-`--jev-mock` replaces Jev only: the benchmark still uses live answer generation
-and judging. Use the demo for a fully offline run.
-
-### Cache reuse and reconstruction
-
-Each sample prints graph construction and saving durations separately. Cached
-runs print loading time and explicitly skip construction. Per-sample results
-store these measurements under `memory_timing`; Jev runs also emit a
-`memory_timing` audit event. Construction timing covers ingestion, embedding,
-link creation, and periodic consolidation inside `build_memory()`, excluding
-builder/model initialization, disk saving, and question answering.
-
-Identical sample, model, embedding, and configuration settings reuse a saved
-graph automatically. The runner prints the resolved cache directory. Read and
-write settings contribute to its fingerprint.
-
-- Add `--rebuild` to reconstruct memory and replace that run's saved graph.
-- Add `--cache-dir ./jev_mem_cache/new-experiment` to preserve older runs.
-- For one sample, add `--reuse-memory PATH_TO_EXISTING_SAMPLE_CACHE` to reuse
-  an exact graph while tuning retrieval. Construction settings must match;
-  new logs and results use the new configuration. Do not combine with `--rebuild`.
-
-Only reuse trusted caches with matching construction settings. See
-[cache compatibility](docs/implementation.md#cache-compatibility) for older graphs.
-
-## Run LongMemEval
-
-Build Jev-Mem graphs and answer the first five questions:
-
-```bash
-python test_longmemeval_chunked.py \
+python -m jev_mem.benchmarks.longmemeval \
   --dataset data/longmemeval_s_cleaned.json \
   --jev-config config/jev_mem.json \
-  --max-questions 5 --rebuild
+  --model gpt-4o-mini --max-questions 5
 ```
 
-Omit `--rebuild` on subsequent runs to reuse matching graphs. Each question has
-its own conversation history; `--max-questions` limits evaluated questions,
-not the messages written into memory. Every nonempty user/assistant message
-passes through the shared builder with its original role and session date.
-The supplied profile disables admission filtering. Answers use only retrieved
-graph evidence, with the question date available for temporal reasoning.
-The terminal reports model initialization, message-level construction progress,
-saving, retrieval, and answer generation.
+Each question has its own conversation history. Jev-Mem ingests every nonempty
+user/assistant message with its role and session date, then answers from
+retrieved graph evidence. The runner uses an existing lenient scorer, **not the
+official LongMemEval metric**. Run with `--help` for category filters; their IDs
+differ from LoCoMo's.
 
-Caches live under `jev_mem_cache/longmemeval/` (override with `--cache-dir`).
-The fingerprint includes the complete conversation content, roles, dates,
-model, embedding choice and configuration, excluding the audit destination.
-Changing settings selects a new cache. Construction/save/load times, retrieval
-traces and query times are saved in `results/jev_mem_longmemeval_*.json`.
-Query time excludes graph construction and evaluation. Decision logs are saved
-alongside each graph. `--no-jev-write` and `--no-jev-read` support ablations.
+### Compare controllers and reuse memory
 
-Use `--category 1` for temporal-reasoning or `--category 2` for multi-session;
-these IDs differ from LoCoMo. See `--help` for all six categories. Jev-Mem uses
-message-level memory; session/episode modes remain baseline-only. Omit all Jev
-options to run the existing MAGMA path. The runner retains its existing lenient
-scorer; its reported accuracy is not the official LongMemEval evaluation metric.
+| Experiment | How to run |
+| --- | --- |
+| Full Jev-Mem | Use `--jev-config config/jev_mem.json` |
+| Ablate write control | Add `--no-jev-write` |
+| Ablate read control | Add `--no-jev-read` |
+| MAGMA baseline | Omit all Jev configuration and flags |
+| Rebuild a benchmark graph | Add `--rebuild` |
+| Keep a separate experiment cache | Add `--cache-dir PATH` |
 
-## Configuration and API
+Matching benchmark runs automatically reuse cached graphs. For a single LoCoMo
+sample, `--reuse-memory PATH_TO_EXISTING_SAMPLE_CACHE` reuses an exact graph
+while tuning retrieval; construction settings must match, and it cannot be
+combined with `--rebuild`.
 
-The live profile is [config/jev_mem.json](config/jev_mem.json). Validated
-fields and baseline defaults live in [JevMemConfig](memory/jev_mem_config.py).
+Results record construction, save/load, and query timing separately. Jev-Mem
+also records retrieval traces and decisions. The runner's construction timer
+excludes model initialization, disk saving, and question answering. Record the
+commit, configuration, dataset subset, model, scoring protocol, and cache state
+when comparing experiments.
 
-| Main profile setting | Value | Purpose |
+## Configuration and integration
+
+Start with [config/jev_mem.json](config/jev_mem.json). All validated fields and
+defaults are defined in [JevMemConfig](memory/jev_mem_config.py).
+
+| Setting | Default profile | Purpose |
 | --- | ---: | --- |
-| `admission_enabled` | `false` | Keep every valid observation |
+| `admission_enabled` | `false` | Preserve every valid observation |
 | `candidate_top_k` | 10 | Bound relation candidates per write |
-| `relation_threshold` | 0.60 | Accept sufficiently supported relations |
-| `anchor_count` | 30 | Seed retrieval from hybrid search |
-| `answer_top_k` / `multihop_top_k` | 40 / 50 | Limit evidence passed to the answerer |
-| `total_graph_budget` | 80 | Limit graph expansion allocations |
-| `maximum_nodes` / `maximum_edges` | 60 / 2400 | Bound traversal work |
-| `maximum_jev_calls` | 16 | Bound retrieval network attempts |
+| `relation_threshold` | 0.60 | Control which inferred relations are accepted |
+| `anchor_count` | 30 | Seed retrieval with hybrid search |
+| `answer_top_k` / `multihop_top_k` | 40 / 50 | Limit evidence sent to the answerer |
+| `total_graph_budget` | 80 | Allocate graph expansion effort |
+| `maximum_nodes` / `maximum_edges` | 60 / 2,400 | Bound traversal work |
+| `maximum_jev_calls` | 16 | Limit retrieval network attempts |
 
-These are experimental settings. Tune on development samples and evaluate on
-held-out samples. Latency limits are checked between operations, not a strict
-wall-clock guarantee for synchronous local computation.
+Tune settings on development data and evaluate on held-out samples. Latency
+limits are checked between operations, so they are not a strict wall-clock
+deadline.
 
-Build and query your own observations with the same configuration:
+For Python integration, import `JevMemSystem` and `JevMemConfig` from `jev_mem`.
+Use [JevMemSystem](jev_mem/system.py),
+[MemoryBuilder](memory/memory_builder.py), and [QueryEngine](memory/query_engine.py)
+with `jev_config=...`. See the [naming and migration guide](docs/architecture.md#naming-and-migration)
+when updating older integrations.
+
+## Project layout
+
+| Directory | Contents |
+| --- | --- |
+| `jev_mem/` | Public API, application CLI, offline demo, dataset loaders, and benchmark runners |
+| `memory/` | Graph/vector storage, Jev controllers, retrieval, and evaluation |
+| `utils/` | Shared model-provider adapters and scoring utilities |
+| `config/` | Validated experiment profiles |
+| `examples/` / `data/` | Synthetic examples / local external datasets |
+| `tests/` | Offline regression and compatibility tests |
+| `scripts/` | Release checks, exports, and retrieval diagnostics |
+| `docs/` | Developer guides and architecture figures |
+
+See the [developer guide](docs/architecture.md) for module responsibilities and
+[documentation index](docs/README.md) for evaluation and release workflows.
+The original root commands remain available as compatibility entry points.
+Install with `python -m pip install -e .` to use the `jev-mem` console commands.
+
+## Contributing
+
+Reproducible benchmark runs, new memory tasks, controller ablations, and
+documentation improvements are welcome. Start with [CONTRIBUTING.md](CONTRIBUTING.md)
+for the development workflow and contribution guidelines.
 
 ```bash
-python main.py --mode build --input examples/observations.json \
-  --jev-config config/jev_mem.json --cache-dir ./jev_mem_cache/app
-python main.py --mode query --question "What reminder does Mira prefer?" \
-  --jev-config config/jev_mem.json --cache-dir ./jev_mem_cache/app
+python -m pip install -r requirements-dev.txt
+python -m pytest -q
 ```
 
-Python entry points are `main.JevMemSystem`, `memory.JevMemConfig`,
-`memory.MemoryBuilder`, and `memory.QueryEngine`. Constructors accept
-`jev_config=...`. Jev questions live in [memory/jev_questions.py](memory/jev_questions.py).
-See [implementation details](docs/implementation.md) for library usage and SDK calls.
+Explore `memory/` for the implementation, `tests/` for offline regression tests,
+and `examples/` for synthetic inputs. Share bugs and experiment ideas through
+[GitHub issues](https://github.com/libingzheren/Jev-Mem/issues).
 
-Omit the Jev configuration and flags to use the MAGMA baseline. With Jev enabled,
-`--no-jev-write` and `--no-jev-read` ablate either controller. The previous
-CLI and Python names remain compatibility aliases; new code should use the
-Jev-Mem names above. See [compatibility details](docs/implementation.md#cache-compatibility).
+## Citation
 
-## Repository guide
+**Jev-Mem: System-One Controlled Agentic Memory**
+by **Dongming Jiang, Yi Li, and Bingzhe Li**, The University of Texas at Dallas.
+For software citation, use [CITATION.bib](CITATION.bib) and record the commit used
+in your experiments. Please also credit MAGMA and the datasets used in your work.
 
-| Path | Contents |
-| --- | --- |
-| `memory/` | Graph/vector storage, Jev policies, retrieval, generation and scoring |
-| `config/` | Live experimental configuration |
-| `tests/` | Offline regression and SDK contract tests |
-| `examples/` | Original synthetic inputs |
-| `docs/` | Algorithm draft, implementation, evaluation, and release guidance |
-| `docs/figures/` | Overview figure, Mermaid source, and Python renderer |
-| `scripts/` | Anchor diagnostics and public-release checks/export |
-| `.github/` | CI, issue forms, dependency updates, and PR template |
+## License and acknowledgments
 
-The LongMemEval runner supports both the preserved baseline and Jev-Mem control.
-Current work includes held-out evaluation, probability
-calibration, and validation under live provider load. Mock tests do not answer
-those research questions.
-
-## Contributing, citation, and license
-
-See [CONTRIBUTING.md](CONTRIBUTING.md), [the code of conduct](CODE_OF_CONDUCT.md),
-[security guidance](SECURITY.md), and [the changelog](CHANGELOG.md).
-To prepare a clean public checkout from a private workspace, use
-[the release guide](docs/releasing.md).
-
-A minimal development-software citation is in [CITATION.bib](CITATION.bib).
-For research, record the actual commit and cite the upstream MAGMA work and
-any datasets used. Author, repository, and archival identifiers should be added
-when the release owner supplies them; no paper publication is claimed here.
-
-Distributed under the [MIT license](LICENSE). The original MAGMA license and
-copyright notice are preserved; see [NOTICE](NOTICE) for attribution. External
-services, dependencies, and datasets retain their respective terms.
+Jev-Mem is distributed under the [MIT license](LICENSE).

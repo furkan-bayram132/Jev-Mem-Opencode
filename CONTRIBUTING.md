@@ -11,15 +11,19 @@ Use Python 3.11 or newer from a checkout:
 python3.11 -m venv .venv
 source .venv/bin/activate
 python -m pip install -r requirements-dev.txt
+python -m pip install --no-deps -e .
 python -m pytest -q
-python jev_mem_demo.py
+python -m jev_mem.demo
 python scripts/check_public_release.py
 ```
 
 Tests and the demo use mocks and do not require API keys or model downloads.
-Keep tests under `tests/`; the root `test_*.py` files are benchmark commands.
+Keep tests under `tests/`; benchmark runners live in `jev_mem/benchmarks/`.
 Add focused regression coverage for changes to decisions, budgets, persistence,
 SDK contracts, and compatibility. Use deterministic synthetic inputs.
+
+See the [project layout](docs/architecture.md) before adding a new module.
+Keep release and packaging manifests in sync when moving files.
 
 ## Pull requests
 

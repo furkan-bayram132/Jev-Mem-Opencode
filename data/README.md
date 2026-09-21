@@ -7,7 +7,7 @@ Download them from their original distributors and follow their licenses and usa
   `data/locomo10.json`, or supply another path with `--dataset`.
 - [LongMemEval](https://github.com/xiaowu0162/LongMemEval): follow the upstream
   download instructions and place the cleaned JSON at `data/longmemeval_s_cleaned.json`.
-  Run `python test_longmemeval_chunked.py --dataset data/longmemeval_s_cleaned.json
+  Run `python -m jev_mem.benchmarks.longmemeval --dataset data/longmemeval_s_cleaned.json
   --jev-config config/jev_mem.json --max-questions 5` for Jev-Mem, or omit the
   Jev configuration for the baseline. Each question contains its own haystack.
 

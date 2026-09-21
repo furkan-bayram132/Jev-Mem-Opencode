@@ -49,27 +49,46 @@ except ImportError:
     logging.warning("OpenAI not available")
 
 try:
-    from load_dataset import load_locomo_dataset, QA, Turn, Session, Conversation
+    from jev_mem.datasets.locomo import load_locomo_dataset, QA, Turn, Session, Conversation
 except ImportError:
     logging.warning("load_dataset not available")
 
-if NLTK_AVAILABLE:
-    try:
-        nltk.download('punkt', quiet=True)
-        nltk.download('wordnet', quiet=True)
-    except Exception as e:
-        print(f"Error downloading NLTK data: {e}")
-
-if SENTENCE_TRANSFORMER_AVAILABLE:
-    try:
-        sentence_model = SentenceTransformer('all-MiniLM-L6-v2')
-    except Exception as e:
-        print(f"Warning: Could not load SentenceTransformer model: {e}")
-        sentence_model = None
-else:
-    sentence_model = None
-
+sentence_model = None
+_sentence_model_initialized = False
+_nltk_initialized = False
+_resource_lock = threading.Lock()
 bert_score_lock = threading.Lock()
+
+
+def _initialize_nltk():
+    """Prepare optional scoring data only when a metric is requested."""
+    global _nltk_initialized
+    if not NLTK_AVAILABLE:
+        return
+    with _resource_lock:
+        if not _nltk_initialized:
+            try:
+                for resource in ('punkt', 'punkt_tab', 'wordnet'):
+                    nltk.download(resource, quiet=True)
+            except Exception as exc:
+                logging.warning("Could not prepare optional NLTK scoring data: %s", exc)
+            _nltk_initialized = True
+
+
+def _get_sentence_model():
+    """Load optional semantic scoring weights lazily, once per process."""
+    global sentence_model, _sentence_model_initialized
+    if not SENTENCE_TRANSFORMER_AVAILABLE:
+        return None
+    with _resource_lock:
+        if not _sentence_model_initialized:
+            try:
+                sentence_model = SentenceTransformer('all-MiniLM-L6-v2')
+            except Exception as exc:
+                logging.warning("Could not load optional semantic scoring model: %s", exc)
+            _sentence_model_initialized = True
+    return sentence_model
+
 
 def simple_tokenize(text):
     """Simple tokenization function."""
@@ -100,6 +119,7 @@ def calculate_bleu_scores(prediction: str, reference: str) -> Dict[str, float]:
     if not NLTK_AVAILABLE:
         return {'bleu': 0.0, 'bleu1': 0.0, 'bleu2': 0.0, 'bleu4': 0.0}
 
+    _initialize_nltk()
     pred_tokens = nltk.word_tokenize(prediction.lower())
     ref_tokens = [nltk.word_tokenize(reference.lower())]
     
@@ -141,6 +161,7 @@ def calculate_bert_scores(prediction: str, reference: str) -> Dict[str, float]:
 def calculate_meteor_score(prediction: str, reference: str) -> float:
     """Calculate METEOR score for the prediction."""
     try:
+        _initialize_nltk()
         return meteor_score([reference.split()], prediction.split())
     except Exception as e:
         # Silently return 0 if METEOR is not available
@@ -148,12 +169,13 @@ def calculate_meteor_score(prediction: str, reference: str) -> float:
 
 def calculate_sentence_similarity(prediction: str, reference: str) -> float:
     """Calculate sentence embedding similarity using SentenceBERT."""
-    if sentence_model is None:
+    model = _get_sentence_model()
+    if model is None:
         return 0.0
     try:
         # Encode sentences
-        embedding1 = sentence_model.encode([prediction], convert_to_tensor=True)
-        embedding2 = sentence_model.encode([reference], convert_to_tensor=True)
+        embedding1 = model.encode([prediction], convert_to_tensor=True)
+        embedding2 = model.encode([reference], convert_to_tensor=True)
         
         # Calculate cosine similarity
         similarity = pytorch_cos_sim(embedding1, embedding2).item()

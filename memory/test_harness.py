@@ -17,13 +17,13 @@ from typing import Dict, List, Optional
 from tqdm import tqdm
 from concurrent.futures import ThreadPoolExecutor
 
-from load_dataset import LoCoMoSample
+from jev_mem.datasets.locomo import LoCoMoSample
 
 logger = logging.getLogger(__name__)
 
 class TestHarness:
     """
-    Test harness for TRG memory system.
+    Test harness for Jev-Mem.
 
     Handles question answering and test execution.
     Evaluation is delegated to a separate Evaluator instance.
@@ -46,7 +46,7 @@ class TestHarness:
         self.answer_formatter = memory_builder.answer_formatter
 
     def retrieval_top_k(self, category):
-        config = getattr(self.query_engine, "sys1_config", None)
+        config = getattr(self.query_engine, "jev_config", None)
         if config and config.read_enabled:
             return config.multihop_top_k if category == 1 else config.answer_top_k
         return 30 if category == 1 else 15
@@ -94,7 +94,7 @@ class TestHarness:
                 temperature=0.0
             )
 
-            config = getattr(self.memory_builder, 'sys1_config', None)
+            config = getattr(self.memory_builder, 'jev_config', None)
             if config and (config.write_enabled or config.read_enabled):
                 import hashlib
                 self.memory_builder.jev.audit.emit("system_two_answer",

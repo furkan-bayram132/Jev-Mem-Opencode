@@ -1,5 +1,5 @@
 """
-Vector Database Interface and Implementation for TRG Memory System
+Vector Database Interface and Implementation for Jev-Mem
 
 This module provides vector storage and similarity search capabilities,
 with support for both in-memory and persistent storage using FAISS.

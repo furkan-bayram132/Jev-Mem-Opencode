@@ -118,34 +118,33 @@ def test_packaging_manifest_matches_release_allowlist():
     assert packaged == set(names)
 
 
-def test_legacy_imports_and_saved_config_are_compatible(tmp_path):
-    from memory import Sys1MemConfig
-    from memory.sys1_config import Sys1MemConfig as OldModuleConfig
-    from memory.sys1_policies import WritePolicy
-    from memory.jev_mem_policies import WritePolicy as NewWritePolicy
-    from main import JevMemSystem, Sys1MemSystem, TRGSystem
+@pytest.mark.parametrize("filename", ["jev_mem_config.json", "sys1mem_config.json"])
+def test_public_imports_and_saved_config_are_compatible(tmp_path, filename):
+    from memory import JevMemConfig as MemoryConfig
+    from jev_mem import JevMemSystem, JevMemConfig as PublicConfig
+    from main import JevMemSystem as EntryPointSystem
     from test_fixed_memory import validate_reuse_memory
 
-    assert Sys1MemConfig is OldModuleConfig is JevMemConfig
-    assert WritePolicy is NewWritePolicy
-    assert Sys1MemSystem is TRGSystem is JevMemSystem
+    assert MemoryConfig is PublicConfig is JevMemConfig
+    assert EntryPointSystem is JevMemSystem
     config = JevMemConfig(write_enabled=True, read_enabled=True)
     (tmp_path / "vectors").mkdir()
     (tmp_path / "graph.json").write_text("{}")
     (tmp_path / "keyword_index.json").write_text("{}")
-    (tmp_path / "sys1mem_config.json").write_text(json.dumps(config.to_dict()))
+    (tmp_path / filename).write_text(json.dumps(config.to_dict()))
     assert validate_reuse_memory(tmp_path, replace(config, anchor_count=20)) == tmp_path
     with pytest.raises(ValueError, match="construction settings"):
         validate_reuse_memory(tmp_path, replace(config, candidate_top_k=30))
 
 
 @pytest.mark.parametrize("script", ["main.py", "test_fixed_memory.py"])
-def test_cli_advertises_new_and_legacy_names(script):
+def test_cli_advertises_only_jev_mem_names(script):
     root = Path(__file__).resolve().parents[1]
     result = subprocess.run([sys.executable, str(root / script), "--help"],
                             capture_output=True, text=True, check=True)
-    for flag in ("--jev-mem", "--jev-config", "--no-jev-write", "--no-jev-read", "--sys1-config"):
+    for flag in ("--jev-mem", "--jev-config", "--no-jev-write", "--no-jev-read"):
         assert flag in result.stdout
+    assert "sys1" not in result.stdout.lower()
 
 
 def test_synthetic_locomo_example_loads():

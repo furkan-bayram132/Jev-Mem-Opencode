@@ -1,7 +1,7 @@
 """
 Temporal Parser Module
 
-Handles robust date/time extraction and normalization for TRG memory system.
+Handles robust date/time extraction and normalization for Jev-Mem.
 Includes parsing of relative dates (yesterday, last week), absolute dates,
 and conversion to appropriate timestamps.
 """

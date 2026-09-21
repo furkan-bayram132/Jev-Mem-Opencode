@@ -1,4 +1,4 @@
-"""System-Two embeddings using the existing OpenAI/Azure v1 configuration."""
+"""Jev-Mem embeddings using the existing OpenAI/Azure v1 configuration."""
 
 import os
 import numpy as np

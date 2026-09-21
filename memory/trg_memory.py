@@ -1,7 +1,7 @@
 """
-Temporal Resonance Graph Memory (TRG) System
+Temporal Resonance Graph (TRG) backend for Jev-Mem
 
-Core implementation of the TRG memory system that manages event nodes,
+Shared graph backend used by Jev-Mem and the MAGMA baseline that manages event nodes,
 performs graph-based retrieval, and handles memory evolution.
 """
 
@@ -37,9 +37,6 @@ from .vector_db import (
 
 from .keyword_enrichment import KeywordEnricher
 
-import sys
-import os
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 try:
     from utils.memory_layer import LLMController
@@ -68,7 +65,7 @@ class QueryContext:
     metadata: Dict[str, Any] = field(default_factory=dict)
 
 class TemporalResonanceGraphMemory:
-    """Main TRG memory system implementation"""
+    """Shared multi-relational graph backend for Jev-Mem"""
 
     def __init__(self,
                  graph_db: Optional[GraphDBInterface] = None,
@@ -81,7 +78,7 @@ class TemporalResonanceGraphMemory:
                  enable_async: bool = False,
                  encoder=None):
         """
-        Initialize TRG Memory System
+        Initialize the graph memory backend
 
         Args:
             graph_db: Graph database instance (defaults to NetworkXGraphDB)
@@ -917,7 +914,7 @@ class TemporalResonanceGraphMemory:
         return narrative_node
 
     def save(self, path: Optional[str] = None):
-        """Save the TRG memory system to disk"""
+        """Save the graph memory backend to disk"""
         save_path = Path(path) if path else self.persist_dir
         if not save_path:
             raise ValueError("No save path provided")
@@ -935,7 +932,7 @@ class TemporalResonanceGraphMemory:
         self.logger.info(f"TRG memory saved to {save_path}")
 
     def load(self, path: Optional[str] = None):
-        """Load the TRG memory system from disk"""
+        """Load the graph memory backend from disk"""
         load_path = Path(path) if path else self.persist_dir
         if not load_path or not load_path.exists():
             raise ValueError(f"Load path {load_path} does not exist")

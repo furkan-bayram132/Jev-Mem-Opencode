@@ -25,7 +25,7 @@ def main():
     os.environ["TRANSFORMERS_OFFLINE"] = "1"
     import numpy as np
     from sentence_transformers import SentenceTransformer
-    from load_dataset import load_locomo_dataset
+    from jev_mem.datasets.locomo import load_locomo_dataset
     from memory.graph_db import NetworkXGraphDB
     from memory.mock_encoder import MockEncoder
     from memory.query_engine import QueryEngine

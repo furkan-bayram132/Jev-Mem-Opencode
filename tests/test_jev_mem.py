@@ -37,7 +37,7 @@ def make_builder(tmp_path, config=None, mock=fixture_answers):
     encoder = MockEncoder()
     trg = TemporalResonanceGraphMemory(vector_db=NumpyVectorDB(encoder.dimension), encoder=encoder, llm_backend=None)
     client = JevClient(config, mock=mock)
-    return MemoryBuilder(str(tmp_path), sys1_config=config, jev_client=client, trg_memory=trg, llm_enabled=False)
+    return MemoryBuilder(str(tmp_path), jev_config=config, jev_client=client, trg_memory=trg, llm_enabled=False)
 
 
 def add_memories(builder, count=5):
@@ -46,7 +46,7 @@ def add_memories(builder, count=5):
 
 
 def engine_for(builder):
-    return QueryEngine(builder.trg, builder.node_index, sys1_config=builder.sys1_config, jev_client=builder.jev)
+    return QueryEngine(builder.trg, builder.node_index, jev_config=builder.jev_config, jev_client=builder.jev)
 
 
 def test_rejection_has_no_storage_or_embedding_side_effects(tmp_path):
@@ -69,7 +69,7 @@ def test_canonical_node_multigraph_and_direction(tmp_path):
     old, new = add_memories(builder, 2)
     assert len(builder.trg.graph_db.nodes) == 2
     assert builder.trg.vector_db.size() == 2
-    assert len(new.attributes["sys1mem"]["memory_type"]) == 4
+    assert len(new.attributes["jev_mem"]["memory_type"]) == 4
     links = list(builder.trg.graph_db.links.values())
     assert {link.link_type for link in links} == set(LinkType)
     for link in links:
@@ -253,9 +253,9 @@ def test_missing_key_write_fallback_and_independent_ablations(tmp_path):
     builder = make_builder(tmp_path, cfg)
     builder.jev.api_key = ""
     node = builder.build("Alice lives and works in Dallas")
-    assert node.attributes["sys1mem"]["controller"] == "magma_fallback"
+    assert node.attributes["jev_mem"]["controller"] == "magma_fallback"
     assert builder.trg.vector_db.size() == 1
-    assert not builder.sys1_config.read_enabled
+    assert not builder.jev_config.read_enabled
     baseline = make_builder(tmp_path / "baseline", JevMemConfig(read_enabled=True, jev_mock=True))
     baseline.jev.evaluate = lambda *_args, **_kwargs: pytest.fail("Ablated write must not call Jev")
     baseline.build("Alice likes learning about new projects")
@@ -527,7 +527,7 @@ def test_admission_and_multilabel_typing_share_single_request(tmp_path):
     builder = make_builder(tmp_path, config, mock=mock)
     node = builder.build("Alice prefers to paint on weekends")
     assert len(calls) == 1 and calls[0][0] == "observation"
-    assert set(node.attributes["sys1mem"]["memory_type"].values()) == {0.9}
+    assert set(node.attributes["jev_mem"]["memory_type"].values()) == {0.9}
     assert all(isinstance(q, Noul) and q.criteria for q in calls[0][1].values())
 
 
@@ -547,7 +547,7 @@ def test_default_write_keeps_short_and_duplicate_turns_with_zero_type_scores(tmp
     assert [node.content_narrative for node in nodes] == ["Hi", "Yes", "Hi"]
     assert builder.trg.vector_db.size() == 3
     for node in nodes:
-        metadata = node.attributes["sys1mem"]
+        metadata = node.attributes["jev_mem"]
         assert metadata["admission_enabled"] is False
         assert metadata["admission"] is None and metadata["admission_score"] is None
         assert set(metadata["memory_type"].values()) == {0.0}
@@ -623,7 +623,7 @@ def test_previous_temporal_policy_cache_requires_rebuild(tmp_path):
     add_memories(builder, 2)
     builder.save()
     path = tmp_path / "jev_mem_config.json"
-    config = builder.sys1_config.to_dict()
+    config = builder.jev_config.to_dict()
     for legacy_version in ("noul-choice-v2", None):
         if legacy_version is None:
             config.pop("decision_schema_version", None)
@@ -631,7 +631,7 @@ def test_previous_temporal_policy_cache_requires_rebuild(tmp_path):
             config["decision_schema_version"] = legacy_version
         path.write_text(json.dumps(config))
         with pytest.raises(ValueError, match="decision_schema_version"):
-            validate_reuse_memory(tmp_path, builder.sys1_config)
+            validate_reuse_memory(tmp_path, builder.jev_config)
 
 
 @pytest.mark.parametrize("option,probability", [("keep_separate", 1.0), ("uncertain", 1.0), ("merge", 0.55), ("promote", 0.55)])
@@ -663,7 +663,7 @@ def test_existing_cache_is_loaded_only_explicitly_and_rebuild_replaces_it(tmp_pa
         backend=backend, dimension=kwargs["dimension"], persist_path=kwargs.get("persist_path")))
     config = JevMemConfig(write_enabled=True, jev_mock=True)
     def new_builder():
-        return MemoryBuilder(str(tmp_path), sys1_config=config, llm_enabled=False)
+        return MemoryBuilder(str(tmp_path), jev_config=config, llm_enabled=False)
     initial = new_builder()
     old_node = initial.build("Alice works on the original project")
     initial.save()
@@ -749,7 +749,7 @@ def test_reuse_memory_allows_read_tuning_but_rejects_write_changes(tmp_path):
     builder = make_builder(tmp_path / "source")
     add_memories(builder, 2)
     builder.save()
-    tuned = replace(builder.sys1_config, anchor_count=20, maximum_edges=1200)
+    tuned = replace(builder.jev_config, anchor_count=20, maximum_edges=1200)
     source = validate_reuse_memory(builder.cache_dir, tuned)
     assert validate_reuse_memory(source, replace(tuned, retrieval_schema_version="future-read-policy")) == source
     restored = make_builder(tmp_path / "new_experiment", tuned)
@@ -844,3 +844,31 @@ def test_jev_state_preserves_observation_vs_event_time():
     assert state['timestamp'] == '2024-03-01T00:00:00'
     assert state['temporal_references'][0]['normalized'] == '29 February 2024'
     assert 'observation_time' in state['timestamp_role']
+
+
+def test_historical_graph_loads_and_saves_with_current_metadata(tmp_path):
+    builder = make_builder(tmp_path)
+    add_memories(builder, 2)
+    builder.save()
+    graph_path = tmp_path / "graph.json"
+    graph = json.loads(graph_path.read_text())
+    for node in graph["nodes"]:
+        node["attributes"]["sys1mem"] = node["attributes"].pop("jev_mem")
+    graph_path.write_text(json.dumps(graph))
+    original = graph_path.read_bytes()
+
+    restored = make_builder(tmp_path)
+    restored.load()
+    assert restored._jev_writes == 2
+    assert set(restored.trg.graph_db.nodes) == set(builder.trg.graph_db.nodes)
+    assert len(restored.trg.graph_db.links) == len(builder.trg.graph_db.links)
+    assert restored.trg.vector_db.size() == 2
+    assert graph_path.read_bytes() == original
+    context, _ = engine_for(restored).query("What does Alice work on?")
+    assert context.anchor_nodes
+
+    restored.save()
+    saved = json.loads(graph_path.read_text())
+    for node in saved["nodes"]:
+        assert "jev_mem" in node["attributes"]
+        assert "sys1mem" not in node["attributes"]

@@ -1,5 +1,5 @@
 """
-Graph Database Interface and Implementation for TRG Memory System
+Graph Database Interface and Implementation for Jev-Mem
 
 This module provides an abstraction layer for graph database operations,
 with an in-memory NetworkX implementation that can be swapped for Neo4j.
@@ -14,6 +14,7 @@ import uuid
 import json
 import networkx as nx
 from collections import deque
+from .cache_compat import normalize_metadata
 
 class NodeType(Enum):
     """Types of nodes in the memory graph"""
@@ -88,7 +89,7 @@ class EventNode:
         node = cls(
             node_id=data.get("node_id", str(uuid.uuid4())),
             content_narrative=data.get("content_narrative", ""),
-            attributes=data.get("attributes", {}),
+            attributes=normalize_metadata(data.get("attributes", {})),
             embedding_vector=data.get("embedding_vector")
         )
         if "timestamp" in data:
@@ -152,7 +153,7 @@ class EpisodeNode:
             summary=data.get("summary", ""),
             event_count=data.get("event_count", 0),
             boundary_reason=data.get("boundary_reason", ""),
-            attributes=data.get("attributes", {}),
+            attributes=normalize_metadata(data.get("attributes", {})),
             embedding_vector=data.get("embedding_vector"),
             event_node_ids=data.get("event_node_ids", [])
         )
@@ -197,7 +198,7 @@ class SessionNode:
             session_id=data.get("session_id", 0),
             summary=data.get("summary", ""),
             date_time=data.get("date_time", ""),
-            attributes=data.get("attributes", {}),
+            attributes=normalize_metadata(data.get("attributes", {})),
             embedding_vector=data.get("embedding_vector"),
             event_node_ids=data.get("event_node_ids", [])
         )
@@ -245,7 +246,7 @@ class Link:
             source_node_id=data.get("source_node_id", ""),
             target_node_id=data.get("target_node_id", ""),
             properties=data.get("properties", {}),
-            metadata=data.get("metadata", {})
+            metadata=normalize_metadata(data.get("metadata", {}))
         )
         if "link_type" in data:
             link.link_type = LinkType(data["link_type"])
