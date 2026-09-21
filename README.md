@@ -156,17 +156,6 @@ python -m jev_mem --mode query --question "What reminder does Mira prefer?" \
 For your own data, supply a JSON list of strings or objects with `content`,
 an optional ISO 8601 `timestamp`, and optional `metadata`.
 
-<details>
-<summary><strong>Azure OpenAI</strong></summary>
-
-Use the Azure resource key as `OPENAI_API_KEY` and set the v1 endpoint:
-
-```dotenv
-OPENAI_BASE_URL=https://YOUR-RESOURCE.services.ai.azure.com/openai/v1/
-```
-
-Pass your chat deployment name with `--model`.
-
 </details>
 
 Live runs send text to the configured providers and may incur charges. Keep
