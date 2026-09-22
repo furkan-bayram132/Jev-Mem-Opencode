@@ -297,9 +297,7 @@ and `examples/` for synthetic inputs. Share bugs and experiment ideas through
 
 ## Citation
 
-**[Jev-Mem: System-One-Controlled Agentic Memory for Efficient AI Agents](https://arxiv.org/abs/2609.23986)**
-by **Dongming Jiang, Yi Li, and Bingzhe Li**, The University of Texas at Dallas.
-The paper is available as [arXiv:2609.23986](https://arxiv.org/abs/2609.23986) [cs.AI].
+
 
 ```bibtex
 @misc{jiang2026jevmem,
@@ -313,8 +311,6 @@ The paper is available as [arXiv:2609.23986](https://arxiv.org/abs/2609.23986) [
 }
 ```
 
-For software citation, use [CITATION.bib](CITATION.bib) and record the commit used
-in your experiments. Please also credit MAGMA and the datasets used in your work.
 
 ## License and acknowledgments
 
