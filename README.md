@@ -1,6 +1,7 @@
-# Jev-Mem: System-One Controlled Agentic Memory
+# Jev-Mem: System-One-Controlled Agentic Memory
 
 [![arXiv](https://img.shields.io/badge/arXiv-2609.23986-b31b1b.svg?logo=arxiv)](https://arxiv.org/abs/2609.23986)
+[![Hugging Face Spaces](https://img.shields.io/badge/%F0%9F%A4%97-Hugging%20Face%20Space-FFD21E)](https://huggingface.co/spaces/libingzheren/Jev-Mem)
 
 **Better memory for long-running AI agents—with fast decisions and focused reasoning.**
 
@@ -25,7 +26,7 @@ for the comparisons.
 
 ![Jev-Mem architecture: System-One control guides writing and retrieval over shared multi-relational memory, with System Two synthesizing the answer.](docs/figures/overall_structure.png)
 
-##  Why Jev-Mem?
+## Why Jev-Mem?
 
 Persistent agents need to remember preferences, connect events across sessions,
 and recover the right evidence as their histories grow. Each new memory and
@@ -161,8 +162,6 @@ python -m jev_mem --mode query --question "What reminder does Mira prefer?" \
 
 For your own data, supply a JSON list of strings or objects with `content`,
 an optional ISO 8601 `timestamp`, and optional `metadata`.
-
-</details>
 
 Live runs send text to the configured providers and may incur charges. Keep
 keys, conversations, and generated caches local; see [SECURITY.md](SECURITY.md)
@@ -300,18 +299,18 @@ and `examples/` for synthetic inputs. Share bugs and experiment ideas through
 
 
 ```bibtex
-@misc{jiang2026jevmem,
-  title={Jev-Mem: System-One-Controlled Agentic Memory for Efficient {AI} Agents},
-  author={Dongming Jiang and Yi Li and Bingzhe Li},
-  year={2026},
-  eprint={2609.23986},
-  archivePrefix={arXiv},
-  primaryClass={cs.AI},
-  url={https://arxiv.org/abs/2609.23986}
+@misc{jiang2026jevmemsystemonecontrolledagenticmemory,
+      title={Jev-Mem: System-One-Controlled Agentic Memory for Efficient AI Agents}, 
+      author={Dongming Jiang and Yi Li and Bingzhe Li},
+      year={2026},
+      eprint={2609.23986},
+      archivePrefix={arXiv},
+      primaryClass={cs.AI},
+      url={https://arxiv.org/abs/2609.23986}, 
 }
 ```
 
 
-## License and acknowledgments
+## License
 
 Jev-Mem is distributed under the [MIT license](LICENSE).
