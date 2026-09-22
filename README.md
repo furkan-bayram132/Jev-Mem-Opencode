@@ -1,6 +1,12 @@
 # Jev-Mem: System-One Controlled Agentic Memory
 
+[![arXiv](https://img.shields.io/badge/arXiv-2609.23986-b31b1b.svg?logo=arxiv)](https://arxiv.org/abs/2609.23986)
+
 **Better memory for long-running AI agents—with fast decisions and focused reasoning.**
+
+**Paper:** [Jev-Mem: System-One-Controlled Agentic Memory for Efficient AI Agents](https://arxiv.org/abs/2609.23986)
+
+Dongming Jiang, Yi Li, and Bingzhe Li · September 2026 · [PDF](https://arxiv.org/pdf/2609.23986)
 
 Jev-Mem separates the frequent decisions of memory management from the deeper
 reasoning needed to answer a question. A lightweight **System-One controller**
@@ -42,8 +48,8 @@ a dedicated, structured controller.
 
 ## Results on LoCoMo
 
-Results below are reported in **Tables 1–2 of the current paper,
-*Jev-Mem: System-One Controlled Agentic Memory***, using GPT-4o-mini as the answer
+Results below are reported in **Tables 1–2 of the
+[paper](https://arxiv.org/abs/2609.23986)**, using GPT-4o-mini as the answer
 model. Answer quality is measured by LLM-as-a-Judge; query latency includes
 retrieval and answer generation.
 
@@ -291,8 +297,22 @@ and `examples/` for synthetic inputs. Share bugs and experiment ideas through
 
 ## Citation
 
-**Jev-Mem: System-One Controlled Agentic Memory**
+**[Jev-Mem: System-One-Controlled Agentic Memory for Efficient AI Agents](https://arxiv.org/abs/2609.23986)**
 by **Dongming Jiang, Yi Li, and Bingzhe Li**, The University of Texas at Dallas.
+The paper is available as [arXiv:2609.23986](https://arxiv.org/abs/2609.23986) [cs.AI].
+
+```bibtex
+@misc{jiang2026jevmem,
+  title={Jev-Mem: System-One-Controlled Agentic Memory for Efficient {AI} Agents},
+  author={Dongming Jiang and Yi Li and Bingzhe Li},
+  year={2026},
+  eprint={2609.23986},
+  archivePrefix={arXiv},
+  primaryClass={cs.AI},
+  url={https://arxiv.org/abs/2609.23986}
+}
+```
+
 For software citation, use [CITATION.bib](CITATION.bib) and record the commit used
 in your experiments. Please also credit MAGMA and the datasets used in your work.
 
