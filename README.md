@@ -1,6 +1,7 @@
 # Jev-Mem: System-One-Controlled Agentic Memory
 
 [![arXiv](https://img.shields.io/badge/arXiv-2609.23986-b31b1b.svg?logo=arxiv)](https://arxiv.org/abs/2609.23986)
+[![Hugging Face Paper](https://img.shields.io/badge/🤗-Hugging%20Face%20Paper-FFD21E)](https://huggingface.co/papers/2609.23986)
 [![Hugging Face Spaces](https://img.shields.io/badge/%F0%9F%A4%97-Hugging%20Face%20Space-FFD21E)](https://huggingface.co/spaces/libingzheren/Jev-Mem)
 
 **Better memory for long-running AI agents—with fast decisions and focused reasoning.**
