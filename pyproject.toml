@@ -23,6 +23,7 @@ dynamic = ["dependencies"]
 [project.scripts]
 jev-mem = "jev_mem.cli:main"
 jev-mem-demo = "jev_mem.demo:main"
+jev-mem-mcp = "jev_mem.mcp_server:main"
 jev-mem-eval = "jev_mem.benchmarks.locomo:main"
 jev-mem-longmemeval = "jev_mem.benchmarks.longmemeval:main"
 

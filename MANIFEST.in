@@ -12,6 +12,7 @@ include SECURITY.md
 include config/README.md
 include config/jev_mem.json
 include config/jev_mem_accuracy.json
+include config/jev_mem_openrouter.json
 include data/README.md
 include docs/README.md
 include docs/architecture.md
@@ -24,6 +25,10 @@ include docs/releasing.md
 include examples/README.md
 include examples/locomo_synthetic.json
 include examples/observations.json
+include integrations/AGENTS.md
+include integrations/README.md
+include integrations/claude_code.json
+include integrations/opencode.json
 include jev_mem/__init__.py
 include jev_mem/__main__.py
 include jev_mem/benchmarks/__init__.py
@@ -34,6 +39,8 @@ include jev_mem/datasets/__init__.py
 include jev_mem/datasets/locomo.py
 include jev_mem/datasets/longmemeval.py
 include jev_mem/demo.py
+include jev_mem/mcp_server.py
+include jev_mem/store.py
 include jev_mem/system.py
 include jev_mem_demo.py
 include load_dataset.py
@@ -47,6 +54,7 @@ include memory/episode_segmenter.py
 include memory/evaluator.py
 include memory/graph_db.py
 include memory/jev_client.py
+include memory/jev_endpoint.py
 include memory/jev_mem_config.py
 include memory/jev_mem_policies.py
 include memory/jev_mem_retrieval.py
@@ -77,6 +85,7 @@ include test_fixed_memory.py
 include test_longmemeval_chunked.py
 include tests/test_jev_mem.py
 include tests/test_longmemeval_jev.py
+include tests/test_mcp_server.py
 include tests/test_metric_resources.py
 include tests/test_naming.py
 include tests/test_project_layout.py

@@ -28,6 +28,8 @@ from .jev_mem_config import JevMemConfig
 
 logger = logging.getLogger("jev_mem")
 
+DEFAULT_ENDPOINT_PATH = "/v1/systemone"
+
 
 class JevUnavailable(RuntimeError):
     pass
@@ -81,7 +83,7 @@ class JevClient:
         self.config = config or JevMemConfig.load()
         # CLI entry points load .env; the SDK owns Bearer authentication.
         # An explicit key takes precedence, including an empty key (fail closed).
-        self.api_key = (api_key if api_key is not None else os.getenv("TYPESAFE_API_KEY", "")).strip()
+        self.api_key = (api_key if api_key is not None else os.getenv(self.config.jev_api_key_env, "")).strip()
         self.transport = transport
         self.mock = mock
         self.audit = audit or DecisionLog(self.config.audit_path)
@@ -92,9 +94,14 @@ class JevClient:
     def _get_sdk(self):
         with self.lock:
             if self._sdk is None:
+                transport = self.transport
+                if transport is None and self.config.jev_endpoint_path != DEFAULT_ENDPOINT_PATH:
+                    # A proxying host serves the same bodies under its own path.
+                    from .jev_endpoint import PathRewriteTransport
+                    transport = PathRewriteTransport(self.config.jev_endpoint_path)
                 self._sdk = TypeSafeClient(
                     api_key=self.api_key, model=self.config.jev_model,
-                    base_url=self.config.jev_base_url, transport=self.transport,
+                    base_url=self.config.jev_base_url, transport=transport,
                     retry=RetryPolicy(max_retries=0, timeout=None),
                 )
             return self._sdk
@@ -148,7 +155,7 @@ class JevClient:
             retry_after = None
             try:
                 if not self.config.jev_mock and not self.api_key:
-                    raise JevUnavailable("missing_typesafe_api_key")
+                    raise JevUnavailable("missing_" + self.config.jev_api_key_env.lower())
                 budget.consume()
                 if self.config.jev_mock:
                     values = self.mock(operation, state, questions) if self.mock else mock_values

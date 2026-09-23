@@ -1,0 +1,16 @@
+{
+  "mcpServers": {
+    "jev-mem": {
+      "command": "jev-mem-mcp",
+      "args": [
+        "--jev-config",
+        "config/jev_mem_openrouter.json",
+        "--cache-dir",
+        ".jev-mem"
+      ],
+      "env": {
+        "OPENROUTER_API_KEY": "${OPENROUTER_API_KEY}"
+      }
+    }
+  }
+}

@@ -27,38 +27,15 @@ os.environ["TRANSFORMERS_VERBOSITY"] = "error"
 load_dotenv()
 
 from jev_mem.datasets.locomo import load_locomo_dataset
-from memory.cache_compat import memory_config_path
+# validate_reuse_memory lives in memory.cache_compat so servers can reuse it
+# without importing this benchmark module; re-exported here for existing callers.
+from memory.cache_compat import memory_config_path, validate_reuse_memory
 from memory.memory_builder import MemoryBuilder
 from memory.query_engine import QueryEngine
 
 logging.basicConfig(level=logging.WARNING)
 logger = logging.getLogger(__name__)
 
-
-def validate_reuse_memory(path, config):
-    """Permit retrieval tuning on an existing graph with matching write settings."""
-    from memory.jev_mem_config import JevMemConfig
-    path = Path(path)
-    for name in ("graph.json", "vectors", "keyword_index.json"):
-        if not (path / name).exists():
-            raise ValueError(f"Reuse cache is missing {name}: {path}")
-    config_path = memory_config_path(path)
-    if not config_path.exists():
-        raise ValueError(f"Reuse cache is missing Jev-Mem configuration: {path}")
-    saved = json.loads(config_path.read_text())
-    # Older caches omitted this field while admission was mandatory.
-    saved.setdefault("admission_enabled", True)
-    saved.setdefault("decision_schema_version", "noul-choice-v2")
-    old = JevMemConfig(**saved).to_dict()
-    current = config.to_dict()
-    fields = ("write_enabled", "admission_enabled", "jev_mock", "jev_model", "decision_schema_version",
-              "relation_threshold", "candidate_top_k", "consolidation_interval", "consolidation_threshold")
-    if config.admission_enabled:
-        fields += ("admission_threshold", "admission_weights")
-    differences = [key for key in fields if json.dumps(old[key]) != json.dumps(current[key])]
-    if differences:
-        raise ValueError("Reuse cache has different construction settings: " + ", ".join(differences))
-    return path
 
 def score_only_mode(args):
     """

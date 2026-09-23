@@ -17,6 +17,8 @@ class JevMemConfig:
     decision_schema_version: str = "noul-choice-v3-magma-temporal"
     retrieval_schema_version: str = "anchored-temporal-v1"
     jev_base_url: str = "https://api.typesafe.ai"
+    jev_endpoint_path: str = "/v1/systemone"
+    jev_api_key_env: str = "TYPESAFE_API_KEY"
     timeout_seconds: float = 3.0
     max_retries: int = 2
     cache_size: int = 1024
@@ -69,6 +71,11 @@ class JevMemConfig:
         for name in ("write_enabled", "read_enabled", "admission_enabled", "jev_mock", "fallback_to_magma", "stopping_enabled"):
             if not isinstance(getattr(self, name), bool):
                 raise ValueError(name + " must be a boolean")
+        for name in ("jev_model", "jev_base_url", "jev_endpoint_path", "jev_api_key_env"):
+            if not isinstance(getattr(self, name), str) or not getattr(self, name).strip():
+                raise ValueError(name + " must be a non-empty string")
+        if not self.jev_endpoint_path.startswith("/"):
+            raise ValueError("jev_endpoint_path must be an absolute request path")
 
     def _integer(self, name, minimum):
         value = getattr(self, name)
@@ -81,8 +88,12 @@ class JevMemConfig:
         allowed = {f.name for f in fields(cls)}
         if set(values) - allowed:
             raise ValueError("Unknown Jev-Mem settings: " + str(sorted(set(values) - allowed)))
-        for env, setting in (("TYPESAFE_DEFAULT_MODEL", "jev_model"), ("TYPESAFE_BASE_URL", "jev_base_url")):
-            if os.getenv(env):
+        # These variables supply a default, so a profile that names the setting
+        # wins: otherwise a stray TYPESAFE_DEFAULT_MODEL in .env would send the
+        # wrong model name to a host that publishes Jev under its own name.
+        for env, setting in (("TYPESAFE_DEFAULT_MODEL", "jev_model"), ("TYPESAFE_BASE_URL", "jev_base_url"),
+                             ("TYPESAFE_API_KEY_ENV", "jev_api_key_env")):
+            if os.getenv(env) and setting not in values:
                 values[setting] = os.environ[env]
         values.update({k: v for k, v in overrides.items() if v is not None})
         return cls(**values)

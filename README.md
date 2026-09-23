@@ -22,7 +22,8 @@ than the strongest or fastest baseline for each metric. See [results](#results-o
 for the comparisons.
 
 [Results](#results-on-locomo) · [How it works](#how-it-works) ·
-[Quick start](#quick-start) · [Run experiments](#run-experiments) ·
+[Quick start](#quick-start) · [Use with your own agent](#use-with-your-own-agent) ·
+[Run experiments](#run-experiments) ·
 [Contribute](#contributing) · [Citation](#citation)
 
 ![Jev-Mem architecture: System-One control guides writing and retrieval over shared multi-relational memory, with System Two synthesizing the answer.](docs/figures/overall_structure.png)
@@ -167,6 +168,39 @@ an optional ISO 8601 `timestamp`, and optional `metadata`.
 Live runs send text to the configured providers and may incur charges. Keep
 keys, conversations, and generated caches local; see [SECURITY.md](SECURITY.md)
 for handling private data.
+
+## Use with your own agent
+
+System One does not need Jev-Mem's answer model. `QueryEngine` returns the
+selected evidence with no LLM call of its own, so any assistant can act as
+System Two while Jev keeps control of memory.
+
+`jev-mem-mcp` exposes that seam as an MCP server. opencode, Claude Code, Gemini
+CLI, and Codex all connect to it the same way:
+
+```bash
+jev-mem-mcp --cache-dir .jev-mem
+```
+
+The agent never sees the graph. It sends a question and receives only the
+observations Jev selected, so what reaches its context stays bounded as the
+memory grows.
+
+| Tool | Purpose |
+| --- | --- |
+| `memory_recall(query, top_k=8)` | Retrieve evidence and a decision trace. Never an answer. |
+| `memory_remember(text, timestamp=None, source=None, tags=None)` | Store one durable observation. |
+| `memory_stats()` | Memory size, active profile, decision log path. |
+
+System-One decisions need a host that answers typed Noul and Choice questions.
+Two profiles are supplied: the default `config/jev_mem.json` calls TypeSafe
+directly with `TYPESAFE_API_KEY`, and `config/jev_mem_openrouter.json` reaches
+the same model through OpenRouter's Decisions API with `OPENROUTER_API_KEY`.
+
+Client configuration files and the agent instructions that make a model use
+them are in [`integrations/`](integrations/README.md). Retrieval traces land in
+`<cache-dir>/decisions.jsonl`, where `"llm_calls": 0` on a `query` record
+confirms no answer model ran while the evidence was gathered.
 
 ## Run experiments
 

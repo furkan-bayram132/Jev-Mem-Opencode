@@ -20,8 +20,9 @@ docs/                Developer guides and figures
 ## Public API and commands
 
 Use `from jev_mem import JevMemSystem, JevMemConfig` for application integration.
-The package also exports `MemoryBuilder` and `QueryEngine`. Public exports are
-loaded lazily, so importing `jev_mem` alone does not initialize model providers.
+The package also exports `MemoryBuilder`, `QueryEngine`, and `MemoryStore`.
+Public exports are loaded lazily, so importing `jev_mem` alone does not
+initialize model providers.
 
 | Task | From a source checkout | After installing the package |
 | --- | --- | --- |
@@ -29,12 +30,32 @@ loaded lazily, so importing `jev_mem` alone does not initialize model providers.
 | Offline demo | `python -m jev_mem.demo` | `jev-mem-demo` |
 | LoCoMo benchmark | `python -m jev_mem.benchmarks.locomo` | `jev-mem-eval` |
 | LongMemEval benchmark | `python -m jev_mem.benchmarks.longmemeval` | `jev-mem-longmemeval` |
+| Memory server for external agents | `python -m jev_mem.mcp_server` | `jev-mem-mcp` |
 
 Install a development checkout with `python -m pip install -e .`.
 Dataset and output paths are relative to the current working directory unless
 an absolute path is supplied. Configuration and datasets are explicit inputs;
 the wheel contains Python code, while the source distribution includes profiles,
 examples, documentation, and tests.
+
+## The System-Two seam
+
+`QueryEngine.query()` returns `(QueryContext, evidence)` and calls no answer
+model; the retrieval trace records `llm_calls: 0`. `MemoryBuilder.build()` needs
+no answer model either, so a System-One write path runs with `llm_enabled=False`.
+`JevMemSystem.query()` is the only place that invokes System Two.
+
+That makes the answer model replaceable. `jev_mem/store.py` holds `MemoryStore`,
+a transport-independent wrapper around a builder and a query engine sharing one
+`JevClient`, and `jev_mem/mcp_server.py` exposes it over stdio MCP so an external
+agent supplies System Two. New transports should wrap `MemoryStore` rather than
+reach into `MemoryBuilder` and `QueryEngine` directly.
+
+`MemoryStore.recall` defaults to a compact evidence format. The benchmark
+formatter in `answer_formatter.py` adds relevance markers and repeats each
+excerpt in a trailing section, which suits a scored prompt but wastes an agent's
+context; pass `output_format="qa"` when comparability with benchmark runs
+matters.
 
 ## Where to make changes
 
@@ -46,7 +67,8 @@ stable for callers and persisted objects.
 Dataset parsing belongs in `jev_mem/datasets/`. Benchmark orchestration belongs
 in `jev_mem/benchmarks/`; it imports the shared memory implementation. Keep
 regression tests in `tests/`, with synthetic inputs and mocked model calls.
-Repository export and diagnostic tools belong in `scripts/`.
+Repository export and diagnostic tools belong in `scripts/`. Client
+configuration for external agents belongs in `integrations/`.
 
 ## Naming and migration
 

@@ -24,6 +24,8 @@ data/*
 !data/README.md
 cache/
 *_cache/
+.jev-mem/
+.jev-mem-*/
 locomo_trg*/
 longmem_*/
 results*/

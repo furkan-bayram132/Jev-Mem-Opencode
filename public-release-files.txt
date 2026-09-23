@@ -13,6 +13,7 @@ SECURITY.md
 config/README.md
 config/jev_mem.json
 config/jev_mem_accuracy.json
+config/jev_mem_openrouter.json
 data/README.md
 docs/README.md
 docs/architecture.md
@@ -25,6 +26,10 @@ docs/releasing.md
 examples/README.md
 examples/locomo_synthetic.json
 examples/observations.json
+integrations/AGENTS.md
+integrations/README.md
+integrations/claude_code.json
+integrations/opencode.json
 jev_mem/__init__.py
 jev_mem/__main__.py
 jev_mem/benchmarks/__init__.py
@@ -35,6 +40,8 @@ jev_mem/datasets/__init__.py
 jev_mem/datasets/locomo.py
 jev_mem/datasets/longmemeval.py
 jev_mem/demo.py
+jev_mem/mcp_server.py
+jev_mem/store.py
 jev_mem/system.py
 jev_mem_demo.py
 load_dataset.py
@@ -48,6 +55,7 @@ memory/episode_segmenter.py
 memory/evaluator.py
 memory/graph_db.py
 memory/jev_client.py
+memory/jev_endpoint.py
 memory/jev_mem_config.py
 memory/jev_mem_policies.py
 memory/jev_mem_retrieval.py
@@ -78,6 +86,7 @@ test_fixed_memory.py
 test_longmemeval_chunked.py
 tests/test_jev_mem.py
 tests/test_longmemeval_jev.py
+tests/test_mcp_server.py
 tests/test_metric_resources.py
 tests/test_naming.py
 tests/test_project_layout.py

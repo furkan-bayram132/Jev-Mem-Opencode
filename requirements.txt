@@ -17,6 +17,9 @@ tiktoken>=0.5.0
 # Jev / TypeSafe SDK
 typesafe-sdk>=0.7,<1
 
+# Memory server for external agents (opencode, Claude Code, Gemini CLI)
+mcp>=2.2,<3
+
 # Utilities
 python-dotenv>=1.0.0
 tqdm>=4.65.0

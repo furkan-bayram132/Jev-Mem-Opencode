@@ -2,12 +2,13 @@
 from importlib import import_module
 
 __version__ = "0.1.0"
-__all__ = ["JevMemSystem", "JevMemConfig", "MemoryBuilder", "QueryEngine"]
+__all__ = ["JevMemSystem", "JevMemConfig", "MemoryBuilder", "MemoryStore", "QueryEngine"]
 
 _EXPORTS = {
     "JevMemSystem": "jev_mem.system",
     "JevMemConfig": "memory.jev_mem_config",
     "MemoryBuilder": "memory.memory_builder",
+    "MemoryStore": "jev_mem.store",
     "QueryEngine": "memory.query_engine",
 }
 

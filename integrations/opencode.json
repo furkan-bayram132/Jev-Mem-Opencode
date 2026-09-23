@@ -1,0 +1,19 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "jev-mem": {
+      "type": "local",
+      "command": [
+        "jev-mem-mcp",
+        "--jev-config",
+        "config/jev_mem_openrouter.json",
+        "--cache-dir",
+        ".jev-mem"
+      ],
+      "enabled": true,
+      "environment": {
+        "OPENROUTER_API_KEY": "{env:OPENROUTER_API_KEY}"
+      }
+    }
+  }
+}
